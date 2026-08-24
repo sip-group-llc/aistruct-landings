@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ECONOMIA — Atualizações Diárias</title>
+  <meta name="robots" content="noindex, nofollow" />
+
+  <!-- Fonte usada no header -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+  <!-- Utmify Pixel Google -->
+  <script>
+    window.googlePixelId = "6a5c2403330a95e4d9ed8ca6";
+    var a = document.createElement("script");
+    a.setAttribute("async", "");
+    a.setAttribute("defer", "");
+    a.setAttribute("src", "https://cdn.utmify.com.br/scripts/pixel/pixel-google.js");
+    document.head.appendChild(a);
+  </script>
+
+  <!-- Utmify UTM capture (CLAUDE.md: obrigatório no frontyt) -->
+  <script
+    src="https://cdn.utmify.com.br/scripts/utms/latest.js"
+    data-utmify-prevent-xcod-sck
+    data-utmify-prevent-subids
+    async
+    defer
+  ></script>
+
+  <!-- Vturb SmartPlayer v4 -->
+  <script src="https://scripts.converteai.net/lib/js/smartplayer-wc/v4/smartplayer.js" id="vturb-smartplayer-js" fetchpriority="high"></script>
+  <script type="text/javascript"> var s=document.createElement("script"); s.src="https://scripts.converteai.net/035cabae-3fc2-4fcc-9aa5-028eb511b2a2/players/6a8b5b5d1e181913b6352ea0/v4/player.js", s.async=!0,document.head.appendChild(s); </script>
+
+  <!-- Scripts da página -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var yearEl = document.getElementById('year');
+      if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+      var viewersEl = document.getElementById('viewers');
+      if (!viewersEl) return;
+      var viewers = 1247;
+      setInterval(function () {
+        viewers += Math.floor(Math.random() * 7) - 3;
+        viewers = Math.max(800, viewers);
+        viewersEl.textContent = viewers.toLocaleString('pt-BR');
+      }, 4000);
+    });
+  </script>
+
+  <style>
+    vturb-smartplayer template, vturb-smartplayer pre,
+    vturb-anchor-button > style, vturb-anchor-button > template, vturb-anchor-button > pre,
+    vturb-call-action > style, vturb-call-action > template, vturb-call-action > pre,
+    vturb-player > style, vturb-player > template, vturb-player > pre,
+    vturb-headline > template, vturb-bezel > template, vturb-resume > template,
+    vturb-controls > template, vturb-fakebar > template, vturb-thumbsniper > template,
+    vturb-context-menu > template, vturb-license > template, vturb-smallplay > template,
+    vturb-bigplay > template, vturb-minihook > template, vturb-smartautoplay > template { display: none !important; }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --red: #a70c0c; --red-dark: #810505; --red-soft: #f96464;
+      --bg: #ffffff; --text: #1a1a1a; --border: #e4e6eb;
+    }
+
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Nunito Sans', Arial, sans-serif;
+      display: flex; flex-direction: column; min-height: 100vh;
+    }
+
+    .site-header { background: var(--red); width: 100%; }
+    .site-header-inner {
+      max-width: 1420px; margin: 0 auto;
+      display: flex; align-items: center; padding: 18px 24px;
+    }
+    .header-icon { color: #fff; flex: 0 0 25%; font-size: 22px; display: flex; align-items: center; }
+    .header-icon.right { justify-content: flex-end; }
+    .header-icon svg { width: 22px; height: 22px; fill: currentColor; }
+
+    .site-title {
+      flex: 1; text-align: center; color: #fff;
+      font-size: clamp(22px, 4vw, 32px);
+      font-weight: 400; letter-spacing: 1px; margin: 0;
+    }
+
+    .site-subbar { background: var(--red-dark); padding: 8px 16px; text-align: center; }
+    .site-subbar p {
+      color: #fff; font-size: 10px; letter-spacing: 2px;
+      text-transform: uppercase; font-weight: 400;
+    }
+
+    main {
+      flex: 1; width: 100%; max-width: 900px; margin: 0 auto;
+      padding: 28px 16px 40px; display: flex; flex-direction: column; align-items: center;
+    }
+
+    .article-headline {
+      font-size: clamp(20px, 3.5vw, 28px);
+      font-weight: 800; line-height: 1.3; color: #111;
+      text-align: center; max-width: 760px; margin-bottom: 8px;
+    }
+    .article-meta {
+      font-size: 12px; color: #888;
+      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px;
+    }
+
+    .video-section { width: 100%; max-width: 760px; margin-bottom: 18px; }
+    .live-bar {
+      display: flex; align-items: center; gap: 8px;
+      background: #fafafa; border: 1px solid var(--border); border-bottom: none;
+      border-radius: 6px 6px 0 0; padding: 8px 16px;
+      font-size: 12px; color: #555;
+    }
+    .live-dot {
+      width: 8px; height: 8px; background: var(--red);
+      border-radius: 50%; animation: blink 1.2s infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+    .live-viewers { margin-left: auto; color: #777; }
+
+    .vturb-outer {
+      width: 100%; background: #000;
+      border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 6px 6px; overflow: hidden;
+    }
+    .vturb-outer vturb-smartplayer { width: 100%; display: block; }
+
+    .footer-band { background: var(--red); padding: 22px 30px; text-align: center; }
+    .footer-band p { color: var(--red-soft); font-size: 14px; font-weight: 500; margin: 0; }
+
+    @media (max-width: 480px) {
+      .site-header-inner { padding: 14px 18px; }
+      .header-icon { font-size: 18px; flex-basis: 33%; }
+      .header-icon svg { width: 18px; height: 18px; }
+      .site-title { font-size: 22px; }
+      .site-subbar p { font-size: 9px; letter-spacing: 1.5px; }
+      main { padding: 20px 12px 30px; }
+      .footer-band { padding: 18px 20px; }
+      .footer-band p { font-size: 10px; line-height: 1.4; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="site-header-inner">
+      <h1 class="site-title">ECONOMIA</h1>
+    </div>
+  </header>
+
+  <main>
+
+    <div class="video-section">
+      <div class="vturb-outer">
+        <vturb-smartplayer id="vid-6a8b5b5d1e181913b6352ea0" style="display: block; margin: 0 auto; width: 100%; max-width: 400px;"></vturb-smartplayer>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="footer-band">
+      <p>&copy; <span id="year"></span></p>
+    </div>
+  </footer>
+
+  
+
+</body>
+</html>
