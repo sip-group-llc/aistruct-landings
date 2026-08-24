@@ -68,7 +68,8 @@
     button.mc-card:hover { border-color: var(--mc-ac); transform: translateY(-2px); }
     button.mc-card:focus-visible { outline: 3px solid var(--mc-ac); outline-offset: 3px; }
 
-    .mc-frame { position: relative; width: 100%; aspect-ratio: 16/9; background: linear-gradient(135deg, #16203c 0%, #0b1226 100%); }
+    /* display:block e obrigatorio — <span> e inline e ignora aspect-ratio (o card colapsava) */
+    .mc-frame { display: block; position: relative; width: 100%; aspect-ratio: 16/9; background: linear-gradient(135deg, #16203c 0%, #0b1226 100%); }
     .mc-frame::before { content: ""; position: absolute; inset: 0; background: radial-gradient(60% 90% at 50% 40%, rgba(59,116,240,0.22) 0%, rgba(59,116,240,0) 65%); }
     .mc-chip { position: absolute; top: 11px; left: 11px; z-index: 3; font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; background: var(--mc-ac); color: #fff; padding: 4px 9px; border-radius: 4px; }
     /* play em quadrado arredondado, não círculo */
