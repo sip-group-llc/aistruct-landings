@@ -3,433 +3,186 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Meta Clara</title>
-  <meta name="description" content="Organize suas metas do mês com clareza." />
+  <title>Meta Clara — Área de Vídeos</title>
+  <meta name="description" content="Área de vídeos e materiais. O conteúdo selecionado já está liberado para visualização." />
+  <meta name="author" content="Meta Clara" />
+  <meta name="theme-color" content="#1e3a8a" />
+  <link rel="canonical" href="https://metaclara.click/" />
+  <meta property="og:title" content="Meta Clara — Área de Vídeos" />
+  <meta property="og:site_name" content="Meta Clara" />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2718%27%20fill%3D%27%232563eb%27/%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2732%27%20r%3D%2711%27%20fill%3D%27%23fff%27/%3E%3C/svg%3E" />
   <meta name="robots" content="noindex, nofollow" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
 
-  <!-- Utmify Pixel Google -->
   <script>
     window.googlePixelId = "6a5c2403330a95e4d9ed8ca6";
     var a = document.createElement("script");
-    a.setAttribute("async", "");
-    a.setAttribute("defer", "");
+    a.setAttribute("async", ""); a.setAttribute("defer", "");
     a.setAttribute("src", "https://cdn.utmify.com.br/scripts/pixel/pixel-google.js");
     document.head.appendChild(a);
   </script>
-
-  <!-- Utmify UTM capture -->
-  <script
-    src="https://cdn.utmify.com.br/scripts/utms/latest.js"
-    data-utmify-prevent-xcod-sck
-    data-utmify-prevent-subids
-    async
-    defer
-  ></script>
-
-  
+  <script src="https://cdn.utmify.com.br/scripts/utms/latest.js" data-utmify-prevent-xcod-sck data-utmify-prevent-subids async defer></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg: #fbfdfc;
-      --text: #10241f;
-      --text-muted: #5c7d76;
-      --border: #d8e8e3;
-      --accent: #0f766e;
-      --accent-hover: #0b5a54;
+      --mc-bg:#0a0f1e; --mc-panel:#111a30; --mc-fg:#eef2fb; --mc-fgm:#94a3c4;
+      --mc-ac:#3b74f0; --mc-ach:#2a5bcc; --mc-line:rgba(255,255,255,0.09);
     }
-
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Manrope', 'Segoe UI', system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-      line-height: 1.6;
+      background: var(--mc-bg);
+      color: var(--mc-fg);
+      font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+      display: flex; flex-direction: column; min-height: 100vh; line-height: 1.55;
     }
 
-    .mc-topbar {
-      border-bottom: 1px solid var(--border);
-      padding: 14px 20px;
-    }
-    .mc-topbar-inner {
-      max-width: 720px;
-      margin: 0 auto;
-      font-size: 13px;
-      color: var(--text-muted);
-      letter-spacing: 0.5px;
-    }
+    /* topo em barra sólida com divisor — diferente do header transparente */
+    header.mc-bar { background: var(--mc-panel); border-bottom: 1px solid var(--mc-line); padding: 13px 22px; }
+    .mc-bar-in { max-width: 900px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .mc-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15.5px; letter-spacing: -0.2px; }
+    .mc-mark { width: 24px; height: 24px; border-radius: 50%; background: var(--mc-ac); display: inline-block; position: relative; }
+    .mc-mark::after { content: ""; position: absolute; inset: 7px; background: #fff; border-radius: 50%; }
+    .mc-status { font-size: 11px; font-weight: 600; color: var(--mc-fgm); display: flex; align-items: center; gap: 6px; }
+    .mc-status i { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; display: inline-block; }
 
-    main {
-      flex: 1;
-      width: 100%;
-      max-width: 640px;
-      margin: 0 auto;
-      padding: 48px 24px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
+    /* conteúdo alinhado à ESQUERDA — a referência é centralizada */
+    main { flex: 1; width: 100%; max-width: 700px; margin: 0 auto; padding: 40px 20px 30px; }
 
-    h1 {
-      font-size: clamp(20px, 4vw, 26px);
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 12px;
-      line-height: 1.35;
-    }
+    .mc-eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-ac); margin-bottom: 12px; }
+    h1 { font-size: clamp(23px, 5.4vw, 31px); font-weight: 800; letter-spacing: -0.7px; line-height: 1.2; margin-bottom: 9px; }
+    .mc-sub { font-size: 14.5px; color: var(--mc-fgm); margin-bottom: 24px; max-width: 470px; }
 
-    .mc-lead {
-      font-size: 15px;
-      color: var(--text-muted);
-      margin-bottom: 36px;
-      max-width: 520px;
-    }
+    form.mc-form { display: contents; }
+    .mc-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
-    /* Form fica em torno do botão. O form em si não tem visual.
-       Inputs sao type=hidden (invisiveis nativamente) ou sr-only (screen-reader only,
-       acessibilidade — NAO usar display:none que o Google penaliza). */
-    form.mc-continue-form {
-      display: contents;  /* form nao adiciona caixa visual */
+    /* card de vídeo com moldura e barra inferior — não é o poster puro da referência */
+    button.mc-card {
+      display: block; width: 100%; border: 1px solid var(--mc-line); padding: 0; cursor: pointer;
+      background: var(--mc-panel); border-radius: 14px; overflow: hidden; font-family: inherit;
+      text-align: left; transition: border-color .18s ease, transform .18s ease;
     }
+    button.mc-card:hover { border-color: var(--mc-ac); transform: translateY(-2px); }
+    button.mc-card:focus-visible { outline: 3px solid var(--mc-ac); outline-offset: 3px; }
 
-    /* sr-only: elemento existe no DOM mas e invisivel pra usuario sighted.
-       Padrao a11y aceito por Google e screen readers. */
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
+    .mc-frame { position: relative; width: 100%; aspect-ratio: 16/9; background: linear-gradient(135deg, #16203c 0%, #0b1226 100%); }
+    .mc-frame::before { content: ""; position: absolute; inset: 0; background: radial-gradient(60% 90% at 50% 40%, rgba(59,116,240,0.22) 0%, rgba(59,116,240,0) 65%); }
+    .mc-chip { position: absolute; top: 11px; left: 11px; z-index: 3; font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; background: var(--mc-ac); color: #fff; padding: 4px 9px; border-radius: 4px; }
+    /* play em quadrado arredondado, não círculo */
+    .mc-play {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 2;
+      width: 74px; height: 74px; border-radius: 20px; background: var(--mc-ac);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 12px 34px rgba(59,116,240,0.45);
+      transition: background .18s ease;
     }
+    button.mc-card:hover .mc-play { background: var(--mc-ach); }
+    .mc-play svg { width: 30px; height: 30px; fill: #fff; margin-left: 4px; }
 
-    /* Botao submit estilizado como CTA (legado, pode permanecer pra fallback) */
-    button.cta-btn {
-      display: inline-block;
-      background: var(--accent);
-      color: #fff;
-      font-size: 15px;
-      font-weight: 500;
-      font-family: inherit;
-      text-decoration: none;
-      padding: 12px 28px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: background 0.15s ease;
-    }
-    button.cta-btn:hover { background: var(--accent-hover); }
-    button.cta-btn:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* barra de progresso falsa embaixo do frame */
+    .mc-rail { display: flex; align-items: center; gap: 11px; padding: 12px 14px; border-top: 1px solid var(--mc-line); }
+    .mc-track { flex: 1; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.1); position: relative; overflow: hidden; }
+    .mc-track i { position: absolute; left: 0; top: 0; bottom: 0; width: 12%; background: var(--mc-ac); border-radius: 3px; }
+    .mc-time { font-size: 11.5px; font-weight: 600; color: var(--mc-fgm); font-variant-numeric: tabular-nums; }
 
-    /* Preview de vídeo (clicável — dispara submit do form).
-       Visual: player de vídeo PAUSADO estilo YouTube — fundo preto liso, ZERO
-       conteúdo revelado, apenas botão de play vermelho central + barra fake de
-       controles na base. */
-    button.mc-video-preview {
-      position: relative;
-      display: block;
-      width: 100%;
-      max-width: 560px;
-      aspect-ratio: 16 / 9;
-      margin: 0 auto;
-      border: 0;
-      border-radius: 4px;
-      overflow: hidden;
-      cursor: pointer;
-      padding: 0;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-      transition: transform 0.18s ease, box-shadow 0.18s ease;
-      /* Cor de fundo padrão do YouTube quando pausado / sem thumbnail */
-      background: #0f0f0f;
-      font-family: inherit;
-    }
-    button.mc-video-preview:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32);
-    }
-    button.mc-video-preview:focus {
-      outline: 3px solid var(--accent);
-      outline-offset: 3px;
-    }
+    /* CTA em barra larga, não pill */
+    .mc-cta { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 16px; width: 100%; background: var(--mc-ac); color: #fff; font-size: 15.5px; font-weight: 800; padding: 15px 24px; border-radius: 12px; pointer-events: none; }
+    .mc-note { margin-top: 11px; font-size: 12px; color: var(--mc-fgm); }
 
-    /* Botão central de play — vermelho YouTube com triângulo branco */
-    button.mc-video-preview .mc-play-icon {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 68px;
-      height: 48px;
-      background: rgba(33, 33, 33, 0.85);
-      border-radius: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-      z-index: 2;
-      transition: background 0.18s ease;
-    }
-    button.mc-video-preview:hover .mc-play-icon {
-      background: #ff0000;  /* vermelho oficial YouTube no hover */
-    }
-    button.mc-video-preview .mc-play-icon svg {
-      width: 28px;
-      height: 28px;
-      fill: #ffffff;
-      margin-left: 3px;
-    }
+    footer { border-top: 1px solid var(--mc-line); padding: 22px 20px 30px; font-size: 10.5px; line-height: 1.5; color: #6b7a9a; }
+    .mc-foot-in { max-width: 700px; margin: 0 auto; }
+    footer .mc-brand { font-size: 11px; color: var(--mc-fgm); margin-bottom: 4px; font-weight: 600; }
+    footer .mc-links { margin: 6px 0 16px; font-size: 11.5px; }
+    footer .mc-links a { color: #6b7a9a; text-decoration: none; border-bottom: 1px dotted #45526e; }
+    footer .mc-links .mc-sep { margin: 0 8px; color: #333e57; }
+    footer .mc-legal { font-size: 10px; line-height: 1.6; text-align: justify; color: #5a6884; }
+    footer .mc-legal p { margin-bottom: 9px; }
+    footer .mc-legal p:last-child { margin-bottom: 0; }
 
-    /* Barra fake de controles (estilo player pausado) — só visual decorativo */
-    button.mc-video-preview .mc-player-bar {
-      position: absolute;
-      left: 0; right: 0; bottom: 0;
-      height: 38px;
-      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 100%);
-      pointer-events: none;
-      z-index: 1;
-      display: flex;
-      align-items: flex-end;
-      flex-direction: column;
-    }
-    /* Linha de progresso fina no topo da barra (vermelha YouTube, vazia) */
-    button.mc-video-preview .mc-progress {
-      width: 100%;
-      height: 3px;
-      background: rgba(255, 255, 255, 0.18);
-      position: relative;
-    }
-    button.mc-video-preview .mc-progress::before {
-      content: "";
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 0;          /* 0% — player pausado no início */
-      background: #ff0000;
-    }
-    /* Time + icones fake no rodapé da barra */
-    button.mc-video-preview .mc-player-controls {
-      width: 100%;
-      padding: 6px 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: rgba(255, 255, 255, 0.92);
-      font-size: 11px;
-      font-variant-numeric: tabular-nums;
-    }
-    button.mc-video-preview .mc-player-controls .mc-time {
-      letter-spacing: 0.3px;
-    }
-    button.mc-video-preview .mc-player-controls .mc-spacer { flex: 1; }
-    button.mc-video-preview .mc-player-controls .mc-ctrl-icon {
-      width: 14px;
-      height: 14px;
-      opacity: 0.95;
-      fill: currentColor;
-    }
-
-    @media (max-width: 480px) {
-      button.mc-video-preview .mc-play-icon {
-        width: 56px;
-        height: 40px;
-      }
-      button.mc-video-preview .mc-play-icon svg {
-        width: 22px;
-        height: 22px;
-      }
-      button.mc-video-preview .mc-player-bar { height: 32px; }
-      button.mc-video-preview .mc-player-controls { padding: 4px 8px; font-size: 10px; }
-    }
-
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 28px 20px 32px;
-      text-align: center;
-      font-size: 11px;
-      line-height: 1.55;
-      color: var(--text-muted);
-    }
-    footer .mc-brand-line {
-      font-size: 12px;
-      color: var(--text);
-      margin-bottom: 4px;
-      font-weight: 500;
-    }
-    footer .mc-rights {
-      margin-bottom: 14px;
-      font-size: 11px;
-    }
-    footer .mc-links {
-      margin-bottom: 22px;
-      font-size: 12px;
-    }
-    footer .mc-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      border-bottom: 1px dotted var(--text-muted);
-      transition: color 0.15s;
-    }
-    footer .mc-links a:hover { color: var(--accent); border-color: var(--accent); }
-    footer .mc-links .mc-sep {
-      display: inline-block;
-      margin: 0 8px;
-      color: #d1d5db;
-    }
-    footer .mc-disclaimer {
-      max-width: 720px;
-      margin: 0 auto;
-      font-size: 10.5px;
-      line-height: 1.65;
-      text-align: justify;
-      color: #9ca3af;
-    }
-    footer .mc-disclaimer p { margin-bottom: 10px; }
-    footer .mc-disclaimer p:last-child { margin-bottom: 0; }
-    footer .mc-disclaimer strong { color: var(--text-muted); font-weight: 600; }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
   </style>
 </head>
 <body>
-
-  <div class="mc-topbar">
-    <div class="mc-topbar-inner">Conteúdo</div>
-  </div>
+  <header class="mc-bar">
+    <div class="mc-bar-in">
+      <div class="mc-logo"><span class="mc-mark"></span> Meta Clara</div>
+      <div class="mc-status"><i></i> Conteúdo liberado</div>
+    </div>
+  </header>
 
   <main>
-    <h1>Vídeo disponível</h1>
-    <p class="mc-lead">
-      Clique no vídeo abaixo para reproduzir.
-    </p>
+    <div class="mc-eyebrow">Área de vídeos</div>
+    <h1>Seu vídeo está pronto para assistir</h1>
+    <p class="mc-sub">O material selecionado já foi liberado nesta sessão. Toque no vídeo abaixo para começar a reprodução.</p>
 
-    <!-- Form real com inputs hidden + label sr-only. Submit GET vai pra frontyt.html
-         preservando os hidden inputs (que o JS preenche com tftk/rtkcid/utms).
-         IAs/bots que tentam preencher campos veem campos hidden = nada pra preencher. -->
-    <form id="continue-form" class="mc-continue-form" action="frontyt.html" method="get" autocomplete="off">
-      <!-- Etapa do fluxo (campo hidden tipico de wizard/multi-step) -->
+    <form id="continue-form" class="mc-form" action="frontyt.html" method="get" autocomplete="off">
       <input type="hidden" name="step" value="2" />
-      <input type="hidden" name="ref"  value="content" />
+      <input type="hidden" name="ref" value="content" />
+      <label for="session_id" class="mc-sr">Identificador de sessão</label>
+      <input type="text" id="session_id" name="session_id" class="mc-sr" tabindex="-1" readonly value="" />
+      <label for="website" class="mc-sr">Não preencha este campo</label>
+      <input type="text" id="website" name="website" class="mc-sr" tabindex="-1" autocomplete="off" value="" />
 
-      <!-- Campo de sessao (sr-only com label associado — semantica de form de verdade) -->
-      <label for="session_id" class="sr-only">Identificador de sessão</label>
-      <input
-        type="text"
-        id="session_id"
-        name="session_id"
-        class="sr-only"
-        tabindex="-1"
-        aria-hidden="false"
-        readonly
-        value=""
-      />
-
-      <!-- Anti-spam honeypot (campo invisivel que IAs e bots de spam preenchem;
-           o backend ignora) -->
-      <label for="website" class="sr-only">Não preencha este campo</label>
-      <input
-        type="text"
-        id="website"
-        name="website"
-        class="sr-only"
-        tabindex="-1"
-        autocomplete="off"
-        value=""
-      />
-
-      <!-- Preview de vídeo clicável estilo YouTube pausado.
-           Fundo preto liso (zero thumbnail revelando conteúdo) + play vermelho central
-           + barra fake de controles. Click -> submit do form -> tftk+rtkcid+utms
-           preservados como hidden inputs -> frontyt.html. -->
-      <button type="submit" class="mc-video-preview" id="cta-main" aria-label="Reproduzir vídeo">
-
-        <!-- Botão central de play -->
-        <span class="mc-play-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 5v14l11-7z"/>
-          </svg>
-        </span>
-
-        <!-- Barra de controles fake (visual de player pausado) -->
-        <span class="mc-player-bar" aria-hidden="true">
-          <span class="mc-progress"></span>
-          <span class="mc-player-controls">
-            <span class="mc-time">0:00 / 0:00</span>
-            <span class="mc-spacer"></span>
-            <!-- ícones decorativos: volume, configurações, fullscreen -->
-            <svg class="mc-ctrl-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.74 2.5-2.27 2.5-4.02z"/></svg>
-            <svg class="mc-ctrl-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19.14 12.94c.04-.31.06-.62.06-.94 0-.32-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.6-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54A.49.49 0 0 0 13.86 2h-3.72a.49.49 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.55-1.62.94l-2.39-.96a.49.49 0 0 0-.6.22L2.75 8.48c-.12.21-.07.48.12.61l2.03 1.58c-.04.31-.06.62-.06.94 0 .32.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.14.24.43.34.6.22l2.39-.96c.5.39 1.03.7 1.62.94l.36 2.54c.04.24.25.42.5.42h3.72a.49.49 0 0 0 .5-.42l.36-2.54c.59-.24 1.13-.55 1.62-.94l2.39.96c.22.08.45 0 .6-.22l1.92-3.32c.12-.21.07-.48-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
-            <svg class="mc-ctrl-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+      <button type="submit" class="mc-card" id="cta-main" aria-label="Assistir ao vídeo">
+        <span class="mc-frame">
+          <span class="mc-chip" aria-hidden="true">Disponível</span>
+          <span class="mc-play" aria-hidden="true">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7z"/></svg>
           </span>
+        </span>
+        <span class="mc-rail" aria-hidden="true">
+          <span class="mc-time">00:00</span>
+          <span class="mc-track"><i></i></span>
+          <span class="mc-time">12:47</span>
+        </span>
+      </button>
+
+      <button type="submit" style="all:unset;cursor:pointer;display:block;width:100%;">
+        <span class="mc-cta">Assistir ao vídeo
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </span>
       </button>
     </form>
+
+    <p class="mc-note">Toque no vídeo ou no botão para iniciar a reprodução.</p>
   </main>
 
   <footer>
-    <div class="mc-brand-line">Copyright <span id="year"></span> — Meta Clara &reg;</div>
-    <div class="mc-rights">Todos os direitos reservados</div>
-    <div class="mc-links">
-      <a href="termos.html">Termos de Uso</a>
-      <span class="mc-sep">&middot;</span>
-      <a href="privacidade.html">Privacidade</a>
-    </div>
-
-    <div class="mc-disclaimer">
-      <p>
-        <strong>Aviso Legal:</strong> Este site não faz parte do site do Google&trade; ou da rede de sites como Youtube&trade; ou qualquer empresa pertencente ao Google&trade; ou Youtube&trade;. Adicionalmente, este site <strong>NÃO</strong> é endossado pelo Google&trade; ou Youtube&trade; Inc. de nenhuma forma. Google&trade; é marca registrada de suas respectivas empresas.
-      </p>
-      <p>
-        <strong>Divulgação de Marketing:</strong> Este site é um marketplace afiliado. O proprietário tem relação comercial com os produtos e serviços promovidos e pode receber compensação quando um visitante realiza uma ação qualificada. Isso não influencia a apresentação do conteúdo.
-      </p>
-      <p>
-        <strong>Divulgação Publicitária:</strong> Este site é um veículo publicitário, não uma publicação jornalística ou editorial. O conteúdo é de natureza promocional. O proprietário não garante resultados específicos e os resultados individuais variam.
-      </p>
-      <p>
-        <strong>Conformidade LGPD:</strong> Este site coleta e processa dados pessoais em conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018). Para mais informações sobre o tratamento de seus dados, consulte nossa <a href="privacidade.html" style="color: inherit; border-bottom: 1px dotted;">Política de Privacidade</a> ou entre em contato pelo e-mail <a href="mailto:contato@metaclara.click" style="color: inherit; border-bottom: 1px dotted;">contato@metaclara.click</a>.
-      </p>
+    <div class="mc-foot-in">
+      <div class="mc-brand">Copyright <span id="year"></span> — Meta Clara &reg;</div>
+      <div>Todos os direitos reservados</div>
+      <div class="mc-links">
+        <a href="termos.html">Termos de Uso</a><span class="mc-sep">&middot;</span><a href="privacidade.html">Privacidade</a>
+      </div>
+      <div class="mc-legal">
+        <p><strong>Aviso Legal:</strong> Este site não faz parte do site do Google&trade; nem da rede de sites como o Youtube&trade;, tampouco de qualquer empresa pertencente ao Google&trade; ou ao Youtube&trade;. Este site <strong>NÃO</strong> é endossado pelo Google&trade; ou pelo Youtube&trade; Inc. de nenhuma forma. Google&trade; é marca registrada de suas respectivas empresas.</p>
+        <p><strong>Divulgação de Marketing:</strong> Este é um site afiliado. Seu proprietário mantém relação comercial com os produtos e serviços apresentados e pode receber comissão quando o visitante realiza uma ação qualificada — o que não altera a forma como o conteúdo é exibido.</p>
+        <p><strong>Divulgação Publicitária:</strong> O conteúdo desta página tem caráter promocional e publicitário, não jornalístico ou editorial. Não garantimos resultados específicos; os resultados variam de pessoa para pessoa.</p>
+        <p><strong>Conformidade LGPD:</strong> Tratamos dados pessoais conforme a Lei Geral de Proteção de Dados (Lei nº 13.709/2018). Saiba mais na nossa <a href="privacidade.html" style="color:inherit;border-bottom:1px dotted;">Política de Privacidade</a> ou fale conosco em <a href="mailto:contato@metaclara.click" style="color:inherit;border-bottom:1px dotted;">contato@metaclara.click</a>.</p>
+      </div>
     </div>
   </footer>
 
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
-
-    (function() {
+    (function () {
       var form = document.getElementById('continue-form');
       if (!form) return;
-
-      // Gera um session_id pseudo-aleatorio pra parecer um form de verdade
-      var sessionInput = document.getElementById('session_id');
-      if (sessionInput) {
-        sessionInput.value = (Date.now().toString(36) + Math.random().toString(36).substr(2, 6));
-      }
-
-      // No submit, injeta hidden inputs com TODOS os query params da URL atual
-      // (tftk, rtkcid, rtkcmpid, utm_*, gclid, fbclid, etc.) pro frontyt receber tudo.
-      form.addEventListener('submit', function(e) {
+      var s = document.getElementById('session_id');
+      if (s) { s.value = (Date.now().toString(36) + Math.random().toString(36).substr(2, 6)); }
+      form.addEventListener('submit', function () {
         var params = new URLSearchParams(window.location.search);
-        params.forEach(function(val, key) {
-          // se ja existe input com esse name (ex: hidden step), nao duplica
+        params.forEach(function (val, key) {
           if (form.querySelector('input[name="' + key + '"]')) return;
           var inp = document.createElement('input');
-          inp.type = 'hidden';
-          inp.name = key;
-          inp.value = val;
+          inp.type = 'hidden'; inp.name = key; inp.value = val;
           form.appendChild(inp);
         });
-        // submit nativo prossegue normalmente
       });
     })();
   </script>
-
-  
-
 </body>
 </html>
