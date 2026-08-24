@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ECONOMIA — Atualizações Diárias</title>
+  <title>Plano Leve — Seu Plano do Mês</title>
+  <meta name="description" content="Um plano simples para as contas do mês." />
   <meta name="robots" content="noindex, nofollow" />
 
   <!-- Fonte usada no header -->
@@ -65,7 +66,7 @@
 
     :root {
       --red: #a70c0c; --red-dark: #810505; --red-soft: #f96464;
-      --bg: #ffffff; --text: #1a1a1a; --border: #e4e6eb;
+      --bg: #fffdf8; --text: #2a2118; --border: #ece0cc;
     }
 
     body {
@@ -74,8 +75,8 @@
       display: flex; flex-direction: column; min-height: 100vh;
     }
 
-    .site-header { background: var(--red); width: 100%; }
-    .site-header-inner {
+    .pl-site-header { background: var(--red); width: 100%; }
+    .pl-site-header-inner {
       max-width: 1420px; margin: 0 auto;
       display: flex; align-items: center; padding: 18px 24px;
     }
@@ -83,7 +84,7 @@
     .header-icon.right { justify-content: flex-end; }
     .header-icon svg { width: 22px; height: 22px; fill: currentColor; }
 
-    .site-title {
+    .pl-site-title {
       flex: 1; text-align: center; color: #fff;
       font-size: clamp(22px, 4vw, 32px);
       font-weight: 400; letter-spacing: 1px; margin: 0;
@@ -110,7 +111,7 @@
       text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px;
     }
 
-    .video-section { width: 100%; max-width: 760px; margin-bottom: 18px; }
+    .pl-video-section { width: 100%; max-width: 760px; margin-bottom: 18px; }
     .live-bar {
       display: flex; align-items: center; gap: 8px;
       background: #fafafa; border: 1px solid var(--border); border-bottom: none;
@@ -124,40 +125,40 @@
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
     .live-viewers { margin-left: auto; color: #777; }
 
-    .vturb-outer {
+    .pl-vturb-outer {
       width: 100%; background: #000;
       border: 1px solid var(--border); border-top: none;
       border-radius: 0 0 6px 6px; overflow: hidden;
     }
-    .vturb-outer vturb-smartplayer { width: 100%; display: block; }
+    .pl-vturb-outer vturb-smartplayer { width: 100%; display: block; }
 
-    .footer-band { background: var(--red); padding: 22px 30px; text-align: center; }
-    .footer-band p { color: var(--red-soft); font-size: 14px; font-weight: 500; margin: 0; }
+    .pl-footer-band { background: var(--red); padding: 22px 30px; text-align: center; }
+    .pl-footer-band p { color: var(--red-soft); font-size: 14px; font-weight: 500; margin: 0; }
 
     @media (max-width: 480px) {
-      .site-header-inner { padding: 14px 18px; }
+      .pl-site-header-inner { padding: 14px 18px; }
       .header-icon { font-size: 18px; flex-basis: 33%; }
       .header-icon svg { width: 18px; height: 18px; }
-      .site-title { font-size: 22px; }
+      .pl-site-title { font-size: 22px; }
       .site-subbar p { font-size: 9px; letter-spacing: 1.5px; }
       main { padding: 20px 12px 30px; }
-      .footer-band { padding: 18px 20px; }
-      .footer-band p { font-size: 10px; line-height: 1.4; }
+      .pl-footer-band { padding: 18px 20px; }
+      .pl-footer-band p { font-size: 10px; line-height: 1.4; }
     }
   </style>
 </head>
 <body>
 
-  <header class="site-header">
-    <div class="site-header-inner">
-      <h1 class="site-title">ECONOMIA</h1>
+  <header class="pl-site-header">
+    <div class="pl-site-header-inner">
+      <h1 class="pl-site-title">PLANO LEVE</h1>
     </div>
   </header>
 
   <main>
 
-    <div class="video-section">
-      <div class="vturb-outer">
+    <div class="pl-video-section">
+      <div class="pl-vturb-outer">
         <vturb-smartplayer id="vid-6a8bc3d71b2904f94a7b3b7a" style="display: block; margin: 0 auto; width: 100%; max-width: 400px;"></vturb-smartplayer>
       </div>
     </div>
@@ -165,7 +166,7 @@
   </main>
 
   <footer>
-    <div class="footer-band">
+    <div class="pl-footer-band">
       <p>&copy; <span id="year"></span></p>
     </div>
   </footer>
