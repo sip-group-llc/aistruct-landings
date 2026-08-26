@@ -7,10 +7,9 @@
   <meta name="description" content="Organize suas metas do mês com clareza." />
   <meta name="robots" content="noindex, nofollow" />
 
-  <!-- Fonte usada no header -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
 
   <!-- Utmify Pixel Google -->
   <script>
@@ -35,20 +34,10 @@
   <script src="https://scripts.converteai.net/lib/js/smartplayer-wc/v4/smartplayer.js" id="vturb-smartplayer-js" fetchpriority="high"></script>
   <script type="text/javascript"> var s=document.createElement("script"); s.src="https://scripts.converteai.net/035cabae-3fc2-4fcc-9aa5-028eb511b2a2/players/6a8bc3d0dc137809af12e2c6/v4/player.js", s.async=!0,document.head.appendChild(s); </script>
 
-  <!-- Scripts da página -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      var yearEl = document.getElementById('year');
-      if (yearEl) yearEl.textContent = new Date().getFullYear();
-
-      var viewersEl = document.getElementById('viewers');
-      if (!viewersEl) return;
-      var viewers = 1247;
-      setInterval(function () {
-        viewers += Math.floor(Math.random() * 7) - 3;
-        viewers = Math.max(800, viewers);
-        viewersEl.textContent = viewers.toLocaleString('pt-BR');
-      }, 4000);
+      var y = document.getElementById('year');
+      if (y) y.textContent = new Date().getFullYear();
     });
   </script>
 
@@ -65,110 +54,103 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --red: #a70c0c; --red-dark: #810505; --red-soft: #f96464;
-      --bg: #fbfdfc; --text: #10241f; --border: #d8e8e3;
+      --mv-bg:#0a0f1e; --mv-panel:#111a30; --mv-fg:#eef2fb; --mv-fgm:#94a3c4;
+      --mv-ac:#3b74f0; --mv-line:rgba(255,255,255,0.09);
     }
 
     body {
-      background: var(--bg); color: var(--text);
-      font-family: 'Nunito Sans', Arial, sans-serif;
-      display: flex; flex-direction: column; min-height: 100vh;
+      background: var(--mv-bg); color: var(--mv-fg);
+      font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+      display: flex; flex-direction: column; min-height: 100vh; line-height: 1.55;
     }
 
-    .mc-site-header { background: var(--red); width: 100%; }
-    .mc-site-header-inner {
-      max-width: 1420px; margin: 0 auto;
-      display: flex; align-items: center; padding: 18px 24px;
+    .mv-bar { background: var(--mv-panel); border-bottom: 1px solid var(--mv-line); }
+    .mv-bar-in {
+      max-width: 980px; margin: 0 auto; padding: 16px 22px;
+      display: flex; align-items: center; gap: 11px;
     }
-    .header-icon { color: #fff; flex: 0 0 25%; font-size: 22px; display: flex; align-items: center; }
-    .header-icon.right { justify-content: flex-end; }
-    .header-icon svg { width: 22px; height: 22px; fill: currentColor; }
-
-    .mc-site-title {
-      flex: 1; text-align: center; color: #fff;
-      font-size: clamp(22px, 4vw, 32px);
-      font-weight: 400; letter-spacing: 1px; margin: 0;
+    .mv-mark {
+      width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto;
+      background: var(--mv-ac);
     }
-
-    .site-subbar { background: var(--red-dark); padding: 8px 16px; text-align: center; }
-    .site-subbar p {
-      color: #fff; font-size: 10px; letter-spacing: 2px;
-      text-transform: uppercase; font-weight: 400;
+    .mv-name {
+      font-size: 15px; font-weight: 800; letter-spacing: -0.2px; color: var(--mv-fg);
+    }
+    .mv-chip {
+      margin-left: auto; font-size: 11px; font-weight: 600; color: var(--mv-fgm);
+      border: 1px solid var(--mv-line); border-radius: 20px; padding: 4px 11px;
     }
 
     main {
-      flex: 1; width: 100%; max-width: 900px; margin: 0 auto;
-      padding: 28px 16px 40px; display: flex; flex-direction: column; align-items: center;
+      flex: 1; width: 100%; max-width: 980px; margin: 0 auto;
+      padding: 26px 22px 44px;
     }
 
-    .article-headline {
-      font-size: clamp(20px, 3.5vw, 28px);
-      font-weight: 800; line-height: 1.3; color: #111;
-      text-align: center; max-width: 760px; margin-bottom: 8px;
+    .mv-eyebrow {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--mv-ac); margin-bottom: 9px;
     }
-    .article-meta {
-      font-size: 12px; color: #888;
-      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px;
+    .mv-sub {
+      font-size: 14px; color: var(--mv-fgm); margin-bottom: 20px; max-width: 560px;
     }
 
-    .mc-video-section { width: 100%; max-width: 760px; margin-bottom: 18px; }
-    .live-bar {
+    .mv-frame {
+      background: var(--mv-panel); border: 1px solid var(--mv-line);
+      border-radius: 14px; padding: 10px;
+    }
+    .mv-stage { background: #000; border-radius: 8px; overflow: hidden; }
+    .mv-stage vturb-smartplayer { width: 100%; display: block; }
+
+    .mv-rail {
       display: flex; align-items: center; gap: 8px;
-      background: #fafafa; border: 1px solid var(--border); border-bottom: none;
-      border-radius: 6px 6px 0 0; padding: 8px 16px;
-      font-size: 12px; color: #555;
+      padding: 11px 4px 2px; font-size: 12px; color: var(--mv-fgm);
     }
-    .live-dot {
-      width: 8px; height: 8px; background: var(--red);
-      border-radius: 50%; animation: blink 1.2s infinite;
+    .mv-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--mv-fgm); opacity: .6; }
+
+    footer {
+      border-top: 1px solid var(--mv-line); background: var(--mv-panel);
+      padding: 20px 22px; text-align: left;
     }
-    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-    .live-viewers { margin-left: auto; color: #777; }
-
-    .mc-vturb-outer {
-      width: 100%; background: #000;
-      border: 1px solid var(--border); border-top: none;
-      border-radius: 0 0 6px 6px; overflow: hidden;
+    .mv-foot-in {
+      max-width: 980px; margin: 0 auto; font-size: 12px; color: var(--mv-fgm);
     }
-    .mc-vturb-outer vturb-smartplayer { width: 100%; display: block; }
 
-    .mc-footer-band { background: var(--red); padding: 22px 30px; text-align: center; }
-    .mc-footer-band p { color: var(--red-soft); font-size: 14px; font-weight: 500; margin: 0; }
-
-    @media (max-width: 480px) {
-      .mc-site-header-inner { padding: 14px 18px; }
-      .header-icon { font-size: 18px; flex-basis: 33%; }
-      .header-icon svg { width: 18px; height: 18px; }
-      .mc-site-title { font-size: 22px; }
-      .site-subbar p { font-size: 9px; letter-spacing: 1.5px; }
-      main { padding: 20px 12px 30px; }
-      .mc-footer-band { padding: 18px 20px; }
-      .mc-footer-band p { font-size: 10px; line-height: 1.4; }
+    @media (max-width: 520px) {
+      .mv-bar-in { padding: 13px 16px; }
+      main { padding: 20px 16px 32px; }
+      .mv-frame { border-radius: 12px; padding: 7px; }
+      .mv-chip { display: none; }
     }
   </style>
 </head>
 <body>
 
-  <header class="mc-site-header">
-    <div class="mc-site-header-inner">
-      <h1 class="mc-site-title">META CLARA</h1>
+  <header class="mv-bar">
+    <div class="mv-bar-in">
+      <div class="mv-mark"></div>
+      <span class="mv-name">Meta Clara</span>
+      <span class="mv-chip">Sessão liberada</span>
     </div>
   </header>
 
   <main>
+    <p class="mv-eyebrow">Conteúdo do mês</p>
+    <p class="mv-sub">O material selecionado já está disponível abaixo. Deixe o som ativo para acompanhar.</p>
 
-    <div class="mc-video-section">
-      <div class="mc-vturb-outer">
+    <div class="mv-frame">
+      <div class="mv-stage">
         <vturb-smartplayer id="vid-6a8bc3d0dc137809af12e2c6" style="display: block; margin: 0 auto; width: 100%; max-width: 400px;"></vturb-smartplayer>
       </div>
+      <div class="mv-rail">
+        <span>Reprodução em andamento</span>
+        <span class="mv-sep"></span>
+        <span>Áudio ativo</span>
+      </div>
     </div>
-
   </main>
 
   <footer>
-    <div class="mc-footer-band">
-      <p>&copy; <span id="year"></span></p>
-    </div>
+    <div class="mv-foot-in">Meta Clara &copy; <span id="year"></span></div>
   </footer>
 
   

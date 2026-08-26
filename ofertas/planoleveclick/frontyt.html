@@ -7,10 +7,9 @@
   <meta name="description" content="Um plano simples para as contas do mês." />
   <meta name="robots" content="noindex, nofollow" />
 
-  <!-- Fonte usada no header -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;700;900&display=swap" rel="stylesheet">
 
   <!-- Utmify Pixel Google -->
   <script>
@@ -35,20 +34,10 @@
   <script src="https://scripts.converteai.net/lib/js/smartplayer-wc/v4/smartplayer.js" id="vturb-smartplayer-js" fetchpriority="high"></script>
   <script type="text/javascript"> var s=document.createElement("script"); s.src="https://scripts.converteai.net/035cabae-3fc2-4fcc-9aa5-028eb511b2a2/players/6a8bc3d71b2904f94a7b3b7a/v4/player.js", s.async=!0,document.head.appendChild(s); </script>
 
-  <!-- Scripts da página -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      var yearEl = document.getElementById('year');
-      if (yearEl) yearEl.textContent = new Date().getFullYear();
-
-      var viewersEl = document.getElementById('viewers');
-      if (!viewersEl) return;
-      var viewers = 1247;
-      setInterval(function () {
-        viewers += Math.floor(Math.random() * 7) - 3;
-        viewers = Math.max(800, viewers);
-        viewersEl.textContent = viewers.toLocaleString('pt-BR');
-      }, 4000);
+      var y = document.getElementById('ano');
+      if (y) y.textContent = new Date().getFullYear();
     });
   </script>
 
@@ -65,110 +54,91 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --red: #a70c0c; --red-dark: #810505; --red-soft: #f96464;
-      --bg: #fffdf8; --text: #2a2118; --border: #ece0cc;
+      --pv-bg:#14100e; --pv-panel:#211c18; --pv-fg:#f7f2ec; --pv-fgm:#a89787;
+      --pv-ac:#e8873a; --pv-line:#3d3529;
     }
 
     body {
-      background: var(--bg); color: var(--text);
-      font-family: 'Nunito Sans', Arial, sans-serif;
-      display: flex; flex-direction: column; min-height: 100vh;
+      background: var(--pv-bg); color: var(--pv-fg);
+      font-family: 'Figtree', 'Trebuchet MS', Verdana, sans-serif;
+      display: flex; flex-direction: column; min-height: 100vh; line-height: 1.6;
     }
 
-    .pl-site-header { background: var(--red); width: 100%; }
-    .pl-site-header-inner {
-      max-width: 1420px; margin: 0 auto;
-      display: flex; align-items: center; padding: 18px 24px;
+    .pv-head { border-bottom: 1px solid var(--pv-line); }
+    .pv-head-in {
+      max-width: 720px; margin: 0 auto; padding: 22px 20px 18px; text-align: center;
     }
-    .header-icon { color: #fff; flex: 0 0 25%; font-size: 22px; display: flex; align-items: center; }
-    .header-icon.right { justify-content: flex-end; }
-    .header-icon svg { width: 22px; height: 22px; fill: currentColor; }
-
-    .pl-site-title {
-      flex: 1; text-align: center; color: #fff;
-      font-size: clamp(22px, 4vw, 32px);
-      font-weight: 400; letter-spacing: 1px; margin: 0;
+    .pv-brand {
+      font-size: 12px; font-weight: 900; letter-spacing: 0.28em;
+      text-transform: uppercase; color: var(--pv-fg);
     }
-
-    .site-subbar { background: var(--red-dark); padding: 8px 16px; text-align: center; }
-    .site-subbar p {
-      color: #fff; font-size: 10px; letter-spacing: 2px;
-      text-transform: uppercase; font-weight: 400;
+    .pv-slash {
+      width: 34px; height: 2px; background: var(--pv-ac);
+      margin: 12px auto 0;
     }
 
     main {
-      flex: 1; width: 100%; max-width: 900px; margin: 0 auto;
-      padding: 28px 16px 40px; display: flex; flex-direction: column; align-items: center;
+      flex: 1; width: 100%; max-width: 720px; margin: 0 auto;
+      padding: 30px 20px 46px; text-align: center;
     }
 
-    .article-headline {
-      font-size: clamp(20px, 3.5vw, 28px);
-      font-weight: 800; line-height: 1.3; color: #111;
-      text-align: center; max-width: 760px; margin-bottom: 8px;
+    .pv-lead {
+      font-size: 14px; color: var(--pv-fgm); margin-bottom: 22px;
     }
-    .article-meta {
-      font-size: 12px; color: #888;
-      text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px;
+    .pv-lead strong { color: var(--pv-fg); font-weight: 700; }
+
+    .pv-screen {
+      position: relative; background: #000;
+      border: 1px solid var(--pv-line); border-radius: 3px;
+      overflow: hidden;
+    }
+    .pv-screen vturb-smartplayer { width: 100%; display: block; }
+    .pv-flag {
+      position: absolute; top: 0; right: 0; z-index: 2;
+      background: var(--pv-ac); color: #221007;
+      font-size: 10px; font-weight: 900; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 5px 10px;
     }
 
-    .pl-video-section { width: 100%; max-width: 760px; margin-bottom: 18px; }
-    .live-bar {
-      display: flex; align-items: center; gap: 8px;
-      background: #fafafa; border: 1px solid var(--border); border-bottom: none;
-      border-radius: 6px 6px 0 0; padding: 8px 16px;
-      font-size: 12px; color: #555;
+    .pv-tip {
+      margin-top: 16px; font-size: 12px; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--pv-fgm);
     }
-    .live-dot {
-      width: 8px; height: 8px; background: var(--red);
-      border-radius: 50%; animation: blink 1.2s infinite;
+
+    footer {
+      border-top: 1px solid var(--pv-line); padding: 22px 20px; text-align: center;
     }
-    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
-    .live-viewers { margin-left: auto; color: #777; }
+    .pv-foot-in { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--pv-fgm); }
 
-    .pl-vturb-outer {
-      width: 100%; background: #000;
-      border: 1px solid var(--border); border-top: none;
-      border-radius: 0 0 6px 6px; overflow: hidden;
-    }
-    .pl-vturb-outer vturb-smartplayer { width: 100%; display: block; }
-
-    .pl-footer-band { background: var(--red); padding: 22px 30px; text-align: center; }
-    .pl-footer-band p { color: var(--red-soft); font-size: 14px; font-weight: 500; margin: 0; }
-
-    @media (max-width: 480px) {
-      .pl-site-header-inner { padding: 14px 18px; }
-      .header-icon { font-size: 18px; flex-basis: 33%; }
-      .header-icon svg { width: 18px; height: 18px; }
-      .pl-site-title { font-size: 22px; }
-      .site-subbar p { font-size: 9px; letter-spacing: 1.5px; }
-      main { padding: 20px 12px 30px; }
-      .pl-footer-band { padding: 18px 20px; }
-      .pl-footer-band p { font-size: 10px; line-height: 1.4; }
+    @media (max-width: 520px) {
+      .pv-head-in { padding: 18px 16px 15px; }
+      main { padding: 24px 16px 34px; }
+      .pv-brand { font-size: 11px; letter-spacing: 0.22em; }
     }
   </style>
 </head>
 <body>
 
-  <header class="pl-site-header">
-    <div class="pl-site-header-inner">
-      <h1 class="pl-site-title">PLANO LEVE</h1>
+  <header class="pv-head">
+    <div class="pv-head-in">
+      <div class="pv-brand">Plano Leve</div>
+      <div class="pv-slash"></div>
     </div>
   </header>
 
   <main>
+    <p class="pv-lead">A sessão desta semana já está <strong>liberada</strong>. Mantenha o som ligado.</p>
 
-    <div class="pl-video-section">
-      <div class="pl-vturb-outer">
-        <vturb-smartplayer id="vid-6a8bc3d71b2904f94a7b3b7a" style="display: block; margin: 0 auto; width: 100%; max-width: 400px;"></vturb-smartplayer>
-      </div>
+    <div class="pv-screen">
+      <span class="pv-flag">Ao vivo</span>
+      <vturb-smartplayer id="vid-6a8bc3d71b2904f94a7b3b7a" style="display: block; margin: 0 auto; width: 100%; max-width: 400px;"></vturb-smartplayer>
     </div>
 
+    <p class="pv-tip">Reprodução iniciada</p>
   </main>
 
   <footer>
-    <div class="pl-footer-band">
-      <p>&copy; <span id="year"></span></p>
-    </div>
+    <div class="pv-foot-in">Plano Leve — <span id="ano"></span></div>
   </footer>
 
   
