@@ -6,7 +6,7 @@ import { brl } from '@/lib/utils';
 import type { ProdutoRel } from '@/lib/data';
 import { Eye, Pencil, Search } from 'lucide-react';
 
-export function ProdutosTable({ rows, papel }: { rows: ProdutoRel[]; papel: 'owner' | 'coproducao' | 'afiliado' }) {
+export function ProdutosTable({ rows, papel }: { rows: ProdutoRel[]; papel: 'owner' | 'coproducao' | 'parceiro' }) {
   const mostraComissao = papel !== 'owner';
   const mostraAutor = papel !== 'owner';
 

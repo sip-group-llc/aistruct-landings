@@ -79,7 +79,7 @@ export default function PedidosPage() {
                   <Th>Pagamento</Th>
                   <Th className="text-right">Valor</Th>
                   <Th>Status</Th>
-                  <Th>Afiliado</Th>
+                  <Th>Parceiro</Th>
                   <Th>UF</Th>
                   <Th>Data</Th>
                   <Th className="w-14 pr-6 text-right">Ver</Th>
@@ -108,8 +108,8 @@ export default function PedidosPage() {
                       <Td className="text-right font-medium text-foreground">{brl(p.valor)}</Td>
                       <Td><Badge tone={tone(p.status)}>{p.status}</Badge></Td>
                       <Td>
-                        {p.afiliado
-                          ? <span className="text-primary">{p.afiliado}</span>
+                        {p.parceiro
+                          ? <span className="text-primary">{p.parceiro}</span>
                           : <span className="text-muted-foreground/60">direto</span>}
                       </Td>
                       <Td>{p.uf}</Td>

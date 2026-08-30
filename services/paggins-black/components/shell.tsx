@@ -40,7 +40,7 @@ const NAV: Item[] = [
     ],
   },
   { label: 'Agentes IA', href: '/agentes', icon: Sparkles },
-  { label: 'Afiliados', href: '/afiliados', icon: Tag },
+  { label: 'Indicações', href: '/indicacao', icon: Tag },
   {
     label: 'Financeiro',
     icon: Wallet,
@@ -67,8 +67,8 @@ function IconBox({ active, children }: { active?: boolean; children: React.React
   return (
     <span
       className={cn(
-        'flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-colors',
-        active ? 'bg-primary text-white' : 'bg-elevated text-muted-foreground'
+        'flex h-8 w-8 shrink-0 items-center justify-center transition-colors duration-300 ease-out',
+        active ? 'text-primary' : 'text-muted-foreground'
       )}
     >
       {children}
@@ -115,7 +115,8 @@ function Sidebar() {
                 <button
                   onClick={() => setOpen(isOpen ? null : item.label)}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-[var(--radius-field)] px-2.5 py-2 text-sm transition-colors',
+                    'flex w-full items-center gap-3 rounded-[var(--radius-field)] px-2.5 py-2 text-sm',
+                    'nav-sweep transition-colors duration-300 ease-out',
                     active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
@@ -129,8 +130,9 @@ function Sidebar() {
                 <Link
                   href={item.href ?? '#'}
                   className={cn(
-                    'flex items-center gap-3 rounded-[var(--radius-field)] px-2.5 py-2 text-sm transition-colors',
-                    active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    'flex items-center gap-3 rounded-[var(--radius-field)] px-2.5 py-2 text-sm',
+                    'nav-sweep transition-colors duration-300 ease-out',
+                    active ? 'is-active text-foreground' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
                   <IconBox active={active}>
@@ -147,9 +149,10 @@ function Sidebar() {
                       key={c.href}
                       href={c.href}
                       className={cn(
-                        'block rounded-[var(--radius-field)] py-2 pl-[52px] pr-3 text-sm transition-colors',
+                        'block rounded-[var(--radius-field)] py-2 pl-[52px] pr-3 text-sm',
+                        'nav-sweep transition-colors duration-300 ease-out',
                         pathname === c.href
-                          ? 'bg-sidebar-active text-foreground'
+                          ? 'is-active text-foreground'
                           : 'text-muted-foreground hover:text-foreground'
                       )}
                     >

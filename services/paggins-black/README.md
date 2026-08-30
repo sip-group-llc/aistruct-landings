@@ -26,9 +26,63 @@ original, não chutada:
 | Sucesso | `#0cc036` | `#22c55e` |
 | Teal | `#4fd1c5` | mantida |
 
-Tipografia **Montserrat** e raios **8/12/100px** são fiéis ao original.
+Raios **8/12/100px** são fiéis ao original. A tipografia foi trocada de Montserrat para
+**Google Sans Flex** (`wght@400`) em 29/08/2026 — ver "Reforma estética" abaixo.
 O gradiente azul de fundo virou a classe `.aurora` — um halo frio quase imperceptível no topo,
 que dá profundidade sem sujar o preto.
+
+## Reforma estética (em andamento — 29/08/2026)
+
+O projeto entrou numa fase de acabamento visual, registrada em **PG2-15**. Enquanto ela durar,
+os ajustes são aplicados **como máscara, não como reescrita**.
+
+**O que isso significa na prática:** ao decidir "tipografia toda em regular", as 81 classes de peso
+(`font-bold`, `font-semibold`, `font-medium`) espalhadas por 29 arquivos **não foram apagadas**.
+Elas continuam no código, apenas inertes, cobertas por 4 linhas no fim de `app/globals.css`:
+
+```css
+body,
+body * {
+  font-weight: 400;
+}
+```
+
+Essa regra está **deliberadamente fora de `@layer`**. No Tailwind v4 as utilities vivem em camada,
+e CSS sem camada vence camada — por isso ela derruba `font-bold` sem precisar de `!important`.
+(Confirmado no CSS compilado que o navegador recebe, não só no fonte.)
+
+**Por que máscara:** decisão estética não é decisão fechada. Reverter uma máscara é apagar um bloco;
+reverter uma reescrita é reeditar 29 arquivos. O custo de mudar de ideia fica baixo enquanto a fase
+está aberta.
+
+**Quando uma decisão se consolidar**, aí sim vale converter a máscara em reescrita — remover as
+classes mortas e apagar o bloco. Fazer isso antes é pagar caro por uma escolha que ainda pode mudar.
+
+### Aplicado até agora
+
+| # | Ajuste | Onde | Como |
+|---|---|---|---|
+| 1 | Tipografia Google Sans Flex, toda em regular | `app/layout.tsx`, `app/globals.css` | máscara `body, body * { font-weight: 400 }` — 81 classes de peso seguem inertes |
+| 2 | Cards sem traçado | `app/globals.css` | máscara `.bg-card { border-color: transparent }` — largura de 1px preservada, sem reflow |
+| 3 | Sidebar: ícones sem fundo | `components/shell.tsx` | removido o `IconBox` colorido; `h-8 w-8` mantido para não deslocar os rótulos |
+| 4 | Sidebar: realce em varredura horizontal | `app/globals.css` (`.nav-sweep`), `components/shell.tsx` | gradiente 270° (direita → esquerda) num `::before` com opacidade animada |
+
+**Por que o realce vive num `::before`:** `background-image` não é animável em CSS. Posto direto
+no `hover:`, o gradiente apareceria de estalo. Animando a opacidade de uma camada, a transição
+de 300ms volta a valer.
+
+Ajuste da varredura, tudo em `.nav-sweep::before`:
+
+| Quer | Mexa em |
+|---|---|
+| morrer mais cedo | `transparent 92%` → `80%` |
+| mais área sólida | a parada de `52%` |
+| mais lento / mais seco | `300ms` |
+| inverter o sentido | `270deg` ↔ `90deg` |
+
+
+> Regra da fase: mudança visual entra por **token** em `app/globals.css` ou por **componente
+> compartilhado** em `components/`. Nunca hardcoded dentro de `app/<rota>/page.tsx`.
 
 ## Escopo (10/08/2026)
 
@@ -45,7 +99,7 @@ sip) — todas as funções do painel no tema black. Mapa do painel real captura
 | Produtos | `/produtos` (abas Meus/Co-produções/Afiliações) · `/produtos/novo` · `/produtos/order-bump` · `/funil` · `/descontos` |
 | Vendas | `/pedidos` · `/assinaturas` · `/clientes` · `/recuperacao` |
 | Agentes IA | `/agentes` · `/checkout` (agente checkout) · `/membros` (tutor) · `POST /api/agent` (motor Claude) |
-| Afiliados | `/afiliados` |
+| Indicações | `/indicacao` |
 | Financeiro | `/financeiro` · `/financeiro/extrato` · `/financeiro/saque` |
 | Relatórios | `/metricas` |
 | Extensões | `/extensoes` · `/extensoes/webhooks` · `/extensoes/api-keys` |

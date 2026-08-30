@@ -11,7 +11,7 @@
      #0b6eae primária    →  #1a8fd8  (elevada p/ contraste sobre preto)
      #4fd1c5 teal        →  mantida
      #0cc036 sucesso     →  #22c55e
-   Tipografia e raios fiéis ao original: Montserrat, radius base 8/12px.
+   Raios fiéis ao original (8/12px). Tipografia trocada para Google Sans Flex (variável, wght 400-700).
    ========================================================================== */
 
 @theme inline {
@@ -70,7 +70,7 @@
   --chart-1: #1a8fd8;
   --chart-2: #4fd1c5;
   --chart-grid: #1c1c22;
-  --font-sans: 'Montserrat', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: 'Google Sans Flex', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -103,3 +103,54 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: #3a3a45; }
 
 input::placeholder, textarea::placeholder { color: #5a5a66; }
+
+/* Reforma estética (29/08/2026): tipografia inteira em regular (400).
+   Regra deliberadamente FORA de @layer — no Tailwind v4 as utilities vivem em
+   camada, e CSS sem camada vence camada. Por isso isto derruba font-bold /
+   font-semibold / font-medium e os defaults de <h1>-<h6>/<strong> sem !important.
+   As 81 classes de peso seguem no código, apenas inertes: para reverter a
+   hierarquia, basta apagar este bloco. */
+body,
+body * {
+  font-weight: 400;
+}
+
+/* Reforma estética (29/08/2026): cards sem traçado.
+   Máscara sobre a utility .bg-card — pega o componente <Card> e também os
+   blocos que imitam card à mão (pendências do dashboard, caixas do checkout,
+   painel do agente). Zera só a COR da borda, mantendo a largura de 1px: sem
+   reflow, o layout não se mexe um pixel. Divisórias de tabela (border-b nos
+   Th/Td), inputs e sidebar não usam .bg-card e seguem intactos.
+   Para devolver o traçado, apague este bloco. */
+.bg-card {
+  border-color: transparent;
+}
+
+/* Reforma estética (29/08/2026): realce do menu lateral em VARREDURA HORIZONTAL.
+   Clareia a partir da DIREITA e se dissolve antes da borda esquerda — o container
+   nunca acende inteiro. O gradiente vive num ::before com opacidade animada, e não
+   no background do elemento, porque background-image não é animável em CSS: sem
+   isso a varredura apareceria de estalo, sem transição. */
+.nav-sweep {
+  position: relative;
+  isolation: isolate;
+}
+.nav-sweep::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 300ms ease-out;
+  background: linear-gradient(
+    270deg,
+    var(--sidebar-active) 0%,
+    var(--sidebar-active) 52%,
+    transparent 92%
+  );
+}
+.nav-sweep:hover::before,
+.nav-sweep.is-active::before {
+  opacity: 1;
+}

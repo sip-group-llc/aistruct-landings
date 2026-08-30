@@ -34,7 +34,7 @@ export type Pedido = {
   hora: number;
   minuto: number;
   dia: number;
-  afiliado: string | null;
+  parceiro: string | null;
   uf: string;
 };
 
@@ -73,7 +73,7 @@ const NOMES = [
   'Priscila Ramos', 'Vinícius Cardoso', 'Aline Peixoto', 'Otávio Bernardes',
 ];
 const UFS = ['SP', 'RJ', 'MG', 'RS', 'PR', 'BA', 'SC', 'PE', 'CE', 'GO', 'DF', 'ES'];
-const AFILIADOS = [null, null, null, 'kaleb.midia', 'lucasbang', 'philip.ads', null, 'traffic.br'];
+const PARCEIROS = [null, null, null, 'kaleb.midia', 'lucasbang', 'philip.ads', null, 'traffic.br'];
 
 function slugEmail(nome: string) {
   return (
@@ -141,7 +141,7 @@ function gerarPedidos(qtd: number): Pedido[] {
       hora: horaPonderada(rnd()),
       minuto: Math.floor(rnd() * 60),
       dia: 10 - Math.floor(rnd() * 3),
-      afiliado: AFILIADOS[Math.floor(rnd() * AFILIADOS.length)],
+      parceiro: PARCEIROS[Math.floor(rnd() * PARCEIROS.length)],
       uf: UFS[Math.floor(rnd() * UFS.length)],
     });
   }
@@ -195,11 +195,11 @@ export const POR_METODO = (['PIX', 'Cartão', 'Boleto'] as Metodo[])
   .filter((x) => x.qtd > 0);
 
 /* ==========================================================================
-   ESPELHO DO HUBLA — produtos por papel (owner/co-produção/afiliado) + assinaturas.
+   ESPELHO DO HUBLA — produtos por papel (owner/co-produção/parceiro) + assinaturas.
    Estrutura fiel ao endpoint deles /products/offers → {owner, affiliates, partners}.
    ========================================================================== */
 
-export type Papel = 'owner' | 'coproducao' | 'afiliado';
+export type Papel = 'owner' | 'coproducao' | 'parceiro';
 
 export type ProdutoRel = Produto & {
   papel: Papel;
@@ -207,7 +207,7 @@ export type ProdutoRel = Produto & {
   autor?: string;         // dono do produto quando não é seu
 };
 
-/** Meus produtos = os do catálogo. Co-produções e afiliações são de terceiros. */
+/** Meus produtos = os do catálogo. Co-produções e parcerias são de terceiros. */
 export const PRODUTOS_REL: ProdutoRel[] = [
   ...PRODUTOS.filter((p) => p.status !== 'Rascunho').slice(0, 8).map(
     (p): ProdutoRel => ({ ...p, papel: 'owner' })
@@ -215,10 +215,10 @@ export const PRODUTOS_REL: ProdutoRel[] = [
   // co-produções (você tem % de produto de outro autor)
   { id: 'c01', nome: 'Imersão Escala 7 Dígitos', cor: 'from-indigo-500 to-blue-900', tipo: 'Digital', status: 'Ativo', preco: 1997, tags: ['High ticket'], vendas: 214, conversao: 3.2, reembolso: 4.1, papel: 'coproducao', comissao: 40, autor: 'Bruno Escala' },
   { id: 'c02', nome: 'Método VSL Milionária', cor: 'from-rose-500 to-red-900', tipo: 'Digital', status: 'Ativo', preco: 597, tags: ['Curso'], vendas: 388, conversao: 5.9, reembolso: 3.3, papel: 'coproducao', comissao: 25, autor: 'Lucas Copy' },
-  // afiliações (você vende produto de outro por comissão)
-  { id: 'a01', nome: 'Suplemento NitroMax', cor: 'from-lime-500 to-green-900', tipo: 'Físico', status: 'Ativo', preco: 289, tags: ['Nutra'], vendas: 1120, conversao: 6.4, reembolso: 5.2, papel: 'afiliado', comissao: 50, autor: 'HealthLab' },
-  { id: 'a02', nome: 'Curso Tráfego do Zero', cor: 'from-cyan-500 to-sky-900', tipo: 'Digital', status: 'Ativo', preco: 397, tags: ['Curso'], vendas: 642, conversao: 7.1, reembolso: 2.8, papel: 'afiliado', comissao: 60, autor: 'Ana Tráfego' },
-  { id: 'a03', nome: 'Ebook Renda em Dólar', cor: 'from-amber-500 to-yellow-800', tipo: 'Digital', status: 'Ativo', preco: 47, tags: ['Ebook'], vendas: 2310, conversao: 12.1, reembolso: 1.9, papel: 'afiliado', comissao: 70, autor: 'Global Digital' },
+  // parcerias (você vende produto de outro por comissão)
+  { id: 'a01', nome: 'Suplemento NitroMax', cor: 'from-lime-500 to-green-900', tipo: 'Físico', status: 'Ativo', preco: 289, tags: ['Nutra'], vendas: 1120, conversao: 6.4, reembolso: 5.2, papel: 'parceiro', comissao: 50, autor: 'HealthLab' },
+  { id: 'a02', nome: 'Curso Tráfego do Zero', cor: 'from-cyan-500 to-sky-900', tipo: 'Digital', status: 'Ativo', preco: 397, tags: ['Curso'], vendas: 642, conversao: 7.1, reembolso: 2.8, papel: 'parceiro', comissao: 60, autor: 'Ana Tráfego' },
+  { id: 'a03', nome: 'Ebook Renda em Dólar', cor: 'from-amber-500 to-yellow-800', tipo: 'Digital', status: 'Ativo', preco: 47, tags: ['Ebook'], vendas: 2310, conversao: 12.1, reembolso: 1.9, papel: 'parceiro', comissao: 70, autor: 'Global Digital' },
 ];
 
 export const porPapel = (papel: Papel) => PRODUTOS_REL.filter((p) => p.papel === papel);
@@ -311,12 +311,12 @@ export const CLIENTES: Cliente[] = (() => {
   return [...seen.values()].sort((a, b) => b.gasto - a.gasto);
 })();
 
-/* ---------------- Afiliados ---------------- */
-export type Afiliado = {
+/* ---------------- Indicações ---------------- */
+export type Parceiro = {
   id: string; nome: string; email: string; vendas: number;
   comissao: number; taxa: number; status: 'Ativo' | 'Pendente';
 };
-export const AFILIADOS_LISTA: Afiliado[] = [
+export const PARCEIROS_LISTA: Parceiro[] = [
   { id: 'AF1', nome: 'Kaleb Menezes', email: 'kaleb.midia@email.com', vendas: 142, comissao: 41230, taxa: 50, status: 'Ativo' },
   { id: 'AF2', nome: 'Lucas Bang', email: 'lucasbang@email.com', vendas: 98, comissao: 28470, taxa: 45, status: 'Ativo' },
   { id: 'AF3', nome: 'Philip Ads', email: 'philip.ads@email.com', vendas: 76, comissao: 22100, taxa: 40, status: 'Ativo' },

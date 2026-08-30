@@ -11,7 +11,7 @@ import { Plus } from 'lucide-react';
 
 const owner = porPapel('owner');
 const copro = porPapel('coproducao');
-const afil = porPapel('afiliado');
+const afil = porPapel('parceiro');
 
 const RESUMO = [
   { label: 'Meus produtos', value: String(owner.length) },
@@ -57,7 +57,7 @@ export default function ProdutosPage() {
                 tabs={[
                   { key: 'owner', label: 'Meus produtos', count: owner.length },
                   { key: 'coproducao', label: 'Minhas co-produções', count: copro.length },
-                  { key: 'afiliado', label: 'Minhas afiliações', count: afil.length },
+                  { key: 'parceiro', label: 'Minhas parcerias', count: afil.length },
                 ]}
               >
                 {(active) =>
@@ -66,7 +66,7 @@ export default function ProdutosPage() {
                   ) : active === 'coproducao' ? (
                     <ProdutosTable rows={copro} papel="coproducao" />
                   ) : (
-                    <ProdutosTable rows={afil} papel="afiliado" />
+                    <ProdutosTable rows={afil} papel="parceiro" />
                   )
                 }
               </Tabs>
