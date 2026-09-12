@@ -2,6 +2,9 @@
 import asyncio
 import importlib.util
 import os
+import io
+import shutil
+import wave
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -38,9 +41,52 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         login = await self.client.post('/api/login', json={"senha": "test-password"})
         self.assertEqual(login.status_code, 200)
         self.assertIn('Secure', login.headers['set-cookie'])
-        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.2')
+        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.3')
         for asset in ('/', '/app.js', '/style.css'):
             self.assertEqual((await self.client.get(asset)).status_code, 200)
+
+    async def test_pwa_assets_and_private_api(self):
+        self.client.cookies.clear()
+        for asset in ('voice.js','pwa.js','sw.js','manifest.webmanifest','icon-192.png','icon-512.png','apple-touch-icon.png','offline.html'):
+            self.assertEqual((await self.client.get('/'+asset)).status_code, 200, asset)
+        manifest=(await self.client.get('/manifest.webmanifest')).json()
+        self.assertEqual(manifest['display'], 'standalone')
+        self.assertEqual((await self.client.post('/api/send-audio?number=test&requestId=one',content=b'abc')).status_code,401)
+        self.assertEqual((await self.client.get('/app.py')).status_code,404)
+
+    async def test_audio_duplicate_conflict_and_validation(self):
+        calls=[]
+        async def fake(raw,number):
+            calls.append((raw,number));await asyncio.sleep(.02)
+            return {'id':'audio-one','status':'PENDING'}
+        url='/api/send-audio?number=synthetic&requestId=audio-request'
+        with patch.object(wa,'_send_voice',fake):
+            opts={'content':b'synthetic-audio','headers':{'Content-Type':'audio/webm;codecs=opus'}}
+            a,b=await asyncio.gather(self.client.post(url,**opts),self.client.post(url,**opts))
+            self.assertEqual(a.json(),b.json());self.assertEqual(len(calls),1)
+            self.assertEqual((await self.client.post(url,content=b'other',headers=opts['headers'])).status_code,409)
+            self.assertEqual((await self.client.post(url,content=b'',headers=opts['headers'])).status_code,400)
+            self.assertEqual((await self.client.post(url,content=b'x',headers={'Content-Type':'text/html'})).status_code,415)
+            with patch.object(wa,'MAX_AUDIO',8):
+                self.assertEqual((await self.client.post(url,**opts)).status_code,413)
+
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg required for the actual codec test')
+    async def test_real_audio_conversion_and_voice_payload(self):
+        wav=io.BytesIO()
+        with wave.open(wav,'wb') as f:
+            f.setnchannels(1);f.setsampwidth(2);f.setframerate(16000);f.writeframes(b'\0\0'*16000)
+        calls=[]
+        async def fake(path,body):
+            calls.append((path,body));return {'key':{'id':'encoded-audio'},'status':'PENDING'}
+        with patch.object(wa,'_post',fake):
+            result=await self.client.post('/api/send-audio?number=synthetic&requestId=encoded',content=wav.getvalue(),headers={'Content-Type':'audio/wav'})
+            self.assertEqual(result.status_code,200,result.text)
+        self.assertIn('/message/sendWhatsAppAudio/',calls[0][0])
+        self.assertFalse(calls[0][1]['encoding'])
+        self.assertEqual(wa._media['encoded-audio'][0],'audio/ogg')
+        self.assertTrue(wa._media['encoded-audio'][1].startswith(b'OggS'))
+        self.assertIn(b'OpusHead',wa._media['encoded-audio'][1])
+        with self.assertRaises(wa.HTTPException):await wa._voice_ogg(b'invalid audio')
 
     async def test_complete_chronological_merge_and_retry(self):
         # 130 received messages interleaved with 110 sent messages in another JID.

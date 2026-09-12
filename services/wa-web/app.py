@@ -17,6 +17,7 @@ import hmac
 import os
 import secrets
 import time
+import tempfile
 from copy import deepcopy
 from collections import OrderedDict
 from hashlib import sha256
@@ -188,7 +189,7 @@ async def state(req: Request):
 @app.get("/api/session")
 def session(req: Request):
     _need(req)
-    return {"ok": True, "transcriber": bool(TR_URL), "version": "2026.09.12.2"}
+    return {"ok": True, "transcriber": bool(TR_URL), "version": "2026.09.12.3"}
 
 
 @app.get("/api/chats")
@@ -357,6 +358,90 @@ async def send(req: Request):
 
 _sends: OrderedDict[str, tuple[dict, asyncio.Task]] = OrderedDict()
 
+# Recorder formats vary (WebM/Opus in Chrome, MP4/AAC in Safari).
+# Convert locally to a WhatsApp voice note. No remote URL or third-party encoder.
+MAX_AUDIO = 12 * 1024 * 1024
+_audio_slots = asyncio.Semaphore(2)
+
+
+async def _voice_ogg(raw: bytes) -> bytes:
+    async with _audio_slots:
+        with tempfile.TemporaryDirectory(prefix="wa-voice-") as folder:
+            source, target = Path(folder) / "recording", Path(folder) / "voice.ogg"
+            source.write_bytes(raw)
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                    "-protocol_whitelist", "file,pipe", "-i", str(source), "-vn",
+                    "-map", "0:a:0", "-ac", "1", "-ar", "48000", "-c:a", "libopus",
+                    "-b:a", "32k", "-application", "voip", "-t", "601", str(target),
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            except FileNotFoundError:
+                raise HTTPException(503, "O gravador está temporariamente indisponível no servidor.")
+            try:
+                await asyncio.wait_for(proc.wait(), 45)
+            finally:
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
+            if proc.returncode or not target.exists() or target.stat().st_size < 100:
+                raise HTTPException(400, "Não foi possível ler este áudio. Grave novamente ou escolha outro arquivo.")
+            encoded = target.read_bytes()
+            # Ogg Opus last-page granule is the decoded sample count (48 kHz).
+            last_page = encoded.rfind(b"OggS")
+            samples = int.from_bytes(encoded[last_page + 6:last_page + 14], "little")
+            if samples > 600 * 48000 + 480:
+                raise HTTPException(400, "O áudio deve ter no máximo 10 minutos.")
+            return encoded
+
+
+async def _send_voice(raw: bytes, number: str):
+    try:
+        encoded = await _voice_ogg(raw)
+    except asyncio.TimeoutError:
+        raise HTTPException(503, "O áudio demorou para processar. Tente um áudio mais curto.")
+    data = await _post(f"/message/sendWhatsAppAudio/{INST}",
+                       {"number": number, "audio": base64.b64encode(encoded).decode(), "encoding": False})
+    mid = (data.get("key") or {}).get("id")
+    if mid:
+        _media[mid] = ("audio/ogg", encoded)
+        while len(_media) > 200:
+            _media.popitem(last=False)
+    return {"id": mid, "status": data.get("status")}
+
+
+@app.post("/api/send-audio")
+async def send_audio(req: Request, number: str, requestId: str):
+    _need(req)
+    if not number or len(number) > 100 or not requestId or len(requestId) > 100:
+        raise HTTPException(400, "Destinatário ou identificação do envio inválidos.")
+    if req.headers.get("content-type", "").split(";")[0] not in {
+        "audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav",
+        "audio/x-wav", "audio/aac", "video/mp4", "application/octet-stream"}:
+        raise HTTPException(415, "Escolha um arquivo de áudio compatível.")
+    raw = bytearray()
+    async for chunk in req.stream():
+        if len(raw) + len(chunk) > MAX_AUDIO:
+            raise HTTPException(413, "O áudio deve ter até 12 MB.")
+        raw.extend(chunk)
+    if not raw:
+        raise HTTPException(400, "O áudio está vazio.")
+    fingerprint = {"kind": "audio", "number": number, "sha256": sha256(raw).hexdigest()}
+    entry = _sends.get(requestId)
+    if entry:
+        if entry[0] != fingerprint:
+            raise HTTPException(409, "Este envio já foi usado para outra mensagem.")
+        task = entry[1]
+    else:
+        if len(_sends) >= 512:
+            finished = next((k for k, v in _sends.items() if v[1].done()), None)
+            if finished is None:
+                raise HTTPException(429, "Há muitos envios em andamento. Aguarde.")
+            _sends.pop(finished)
+        task = asyncio.create_task(_send_voice(bytes(raw), number))
+        _sends[requestId] = (fingerprint, task)
+    return await asyncio.shield(task)
+
 
 @app.post("/api/read")
 async def read(req: Request):
@@ -405,12 +490,12 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(TR_URL), "version": "2026.09.12.2"}
+    return {"ok": True, "instance": INST, "transcriber": bool(TR_URL), "version": "2026.09.12.3"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return HTML
+    return HTMLResponse(HTML, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/app.js")
@@ -421,3 +506,15 @@ def javascript():
 @app.get("/style.css")
 def stylesheet():
     return Response((Path(__file__).parent / "style.css").read_text(encoding="utf-8"), media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/{asset}")
+def app_asset(asset: str):
+    public_assets = {"voice.js": "application/javascript", "pwa.js": "application/javascript",
+                     "sw.js": "application/javascript", "manifest.webmanifest": "application/manifest+json",
+                     "icon-192.png": "image/png", "icon-512.png": "image/png", "apple-touch-icon.png": "image/png",
+                     "offline.html": "text/html"}
+    if asset not in public_assets:
+        raise HTTPException(404)
+    return Response((Path(__file__).parent / asset).read_bytes(), media_type=public_assets[asset],
+                    headers={"Cache-Control": "no-cache"})
