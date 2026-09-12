@@ -17,6 +17,7 @@ import hmac
 import os
 import secrets
 import time
+from copy import deepcopy
 from collections import OrderedDict
 from hashlib import sha256
 from pathlib import Path
@@ -37,6 +38,16 @@ HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
 app = FastAPI(title="wa-web")
 evo = httpx.AsyncClient(base_url=EVO, headers={"apikey": KEY}, timeout=120)
+
+
+@app.middleware("http")
+async def private_responses(req: Request, call_next):
+    resp = await call_next(req)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    if req.url.path.startswith("/api/") and req.url.path != "/api/media":
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 # ---------------------------------------------------------------- auth
 _token = hmac.new(SECRET.encode(), b"wa-web-ok", sha256).hexdigest()
@@ -75,7 +86,10 @@ def logout(resp: Response):
 
 # ---------------------------------------------------------------- helpers
 async def _post(path: str, body: dict | None = None) -> dict | list:
-    r = await evo.post(path, json=body or {})
+    try:
+        r = await evo.post(path, json=body or {})
+    except httpx.RequestError:
+        raise HTTPException(504, "Não foi possível confirmar a operação. Atualize a conversa antes de tentar novamente.")
     if r.status_code >= 400:
         raise HTTPException(502, f"evolution {r.status_code}: {r.text[:200]}")
     return r.json()
@@ -84,6 +98,13 @@ async def _post(path: str, body: dict | None = None) -> dict | list:
 def _body(msg: dict) -> tuple[str, str, dict]:
     """(tipo, texto, extra) a partir de message{}."""
     m = msg.get("message") or {}
+    for _ in range(4):
+        wrapped = next((m.get(k, {}).get("message") for k in
+                        ("ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "documentWithCaptionMessage")
+                        if isinstance(m.get(k), dict) and m[k].get("message")), None)
+        if not wrapped:
+            break
+        m = wrapped
     if m.get("conversation"):
         return "text", m["conversation"], {}
     if m.get("extendedTextMessage"):
@@ -97,7 +118,7 @@ def _body(msg: dict) -> tuple[str, str, dict]:
         return "audio", "", {"seconds": a.get("seconds"), "mime": a.get("mimetype")}
     if m.get("documentMessage"):
         d = m["documentMessage"]
-        return "document", d.get("caption", ""), {"fileName": d.get("fileName"), "mime": d.get("mimetype")}
+        return "document", d.get("caption", ""), {"fileName": d.get("fileName"), "mime": d.get("mimetype"), "size": d.get("fileLength")}
     if m.get("stickerMessage"):
         return "sticker", "", {}
     if m.get("reactionMessage"):
@@ -114,6 +135,17 @@ def _body(msg: dict) -> tuple[str, str, dict]:
 def _norm(rec: dict) -> dict:
     k = rec.get("key") or {}
     typ, txt, extra = _body(rec)
+    content = rec.get("message") or {}
+    for _ in range(4):
+        wrapped = next((v.get("message") for v in content.values()
+                        if isinstance(v, dict) and isinstance(v.get("message"), dict)), None)
+        if not wrapped:
+            break
+        content = wrapped
+    context = next((v["contextInfo"] for v in content.values()
+                    if isinstance(v, dict) and isinstance(v.get("contextInfo"), dict)), {})
+    quoted = context.get("quotedMessage") or {}
+    qtype, qtext, _ = _body({"message": quoted}) if quoted else ("", "", {})
     return {
         "id": k.get("id"),
         "fromMe": bool(k.get("fromMe")),
@@ -122,6 +154,11 @@ def _norm(rec: dict) -> dict:
         "participant": (k.get("participant") or "").split("@")[0],
         "type": typ,
         "text": txt,
+        "jid": k.get("remoteJid") or "",
+        "participantJid": k.get("participant") or "",
+        "status": rec.get("status"),
+        "quote": {"id": context.get("stanzaId"), "text": qtext, "type": qtype} if quoted else None,
+        "transcript": _trans.get(k.get("id")),
         **extra,
     }
 
@@ -140,8 +177,18 @@ def _number(chat_jid: str, alt: str) -> str:
 @app.get("/api/state")
 async def state(req: Request):
     _need(req)
-    r = await evo.get(f"/instance/connectionState/{INST}")
+    try:
+        r = await evo.get(f"/instance/connectionState/{INST}")
+        r.raise_for_status()
+    except httpx.HTTPError:
+        raise HTTPException(502, "Não foi possível verificar a conexão do WhatsApp.")
     return r.json()
+
+
+@app.get("/api/session")
+def session(req: Request):
+    _need(req)
+    return {"ok": True, "transcriber": bool(TR_URL), "version": "2026.09.12.2"}
 
 
 @app.get("/api/chats")
@@ -169,6 +216,7 @@ async def chats(req: Request):
             "who": lm.get("pushName") or "",
             "ptype": typ,
             "preview": txt or extra.get("fileName") or "",
+            "seconds": extra.get("seconds"),
             "pic": c.get("profilePicUrl") or "",
         }
         prev = merged.get(number)
@@ -187,32 +235,69 @@ async def chats(req: Request):
     return out
 
 
-@app.get("/api/messages")
-async def messages(req: Request, jid: str, page: int = 1, extra: str = ""):
-    """`jid` pagina normalmente; `extra` (jids irmãos do mesmo número, vírgula) só página 1 —
-    é onde ficam as mensagens que EU mandei, poucas e recentes."""
-    _need(req)
+_cursors: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+
+
+async def _fill_stream(stream: dict):
+    if stream["queue"] or stream["done"]:
+        return
     data = await _post(f"/chat/findMessages/{INST}",
-                       {"where": {"key": {"remoteJid": jid}}, "limit": 50, "page": page})
-    m = data.get("messages") or {}
-    recs = list(m.get("records") or [])
-    for j in [x for x in extra.split(",") if x and x != jid]:
-        d2 = await _post(f"/chat/findMessages/{INST}",
-                         {"where": {"key": {"remoteJid": j}}, "limit": 50, "page": 1})
-        recs += (d2.get("messages") or {}).get("records") or []
-    alt = next((r["key"].get("remoteJidAlt") for r in recs
-                if r.get("key", {}).get("remoteJidAlt")), "")
-    seen: set[str] = set()
-    msgs = []
-    for r in recs:
-        n = _norm(r)
-        if n["id"] in seen:
-            continue
-        seen.add(n["id"])
-        msgs.append(n)
-    msgs.sort(key=lambda x: x["ts"])
-    return {"messages": msgs, "page": page, "pages": m.get("pages") or 1,
-            "number": _number(jid, alt)}
+                       {"where": {"key": {"remoteJid": stream["jid"]}}, "limit": 50, "page": stream["page"]})
+    result = data.get("messages") or {}
+    stream["queue"] = sorted(result.get("records") or [], key=lambda r: int(r.get("messageTimestamp") or 0), reverse=True)
+    stream["done"] = stream["page"] >= int(result.get("pages") or 1) or not stream["queue"]
+    stream["page"] += 1
+
+
+@app.get("/api/messages")
+async def messages(req: Request, jid: str, extra: str = "", cursor: str = ""):
+    """Merge the newest frontiers of all JIDs; older pages never outrun a sibling.
+
+    Opaque short-lived cursors preserve buffered records and can be retried safely.
+    Each request advances a copy, leaving the previous cursor unchanged on failure.
+    """
+    _need(req)
+    jids = sorted(set([jid] + [j for j in extra.split(",") if j]))
+    if not jid or len(jids) > 8:
+        raise HTTPException(400, "Conversa inválida.")
+    now = time.monotonic()
+    if cursor:
+        entry = _cursors.get(cursor)
+        if not entry or now - entry[0] > 1800 or entry[1]["jids"] != jids:
+            raise HTTPException(410, "O histórico expirou. Reabra a conversa para continuar.")
+        snapshot = deepcopy(entry[1])
+    else:
+        snapshot = {"jids": jids, "streams": [{"jid": j, "page": 1, "queue": [], "done": False} for j in jids], "seen": set()}
+    streams = snapshot["streams"]
+    await asyncio.gather(*(_fill_stream(s) for s in streams))
+    output, alt = [], ""
+    # Bound pathological duplicate pages while permitting normal merged histories.
+    for _ in range(500):
+        ready = [s for s in streams if s["queue"]]
+        if not ready or len(output) >= 50:
+            break
+        stream = max(ready, key=lambda s: int(s["queue"][0].get("messageTimestamp") or 0))
+        rec = stream["queue"].pop(0)
+        rec.setdefault("key", {}).setdefault("remoteJid", stream["jid"])
+        key = rec["key"]
+        candidate = key.get("remoteJidAlt") or ""
+        if candidate.endswith("@s.whatsapp.net"):
+            alt = candidate
+        msg = _norm(rec)
+        if msg["id"] and msg["id"] not in snapshot["seen"]:
+            snapshot["seen"].add(msg["id"])
+            output.append(msg)
+        if len(output) < 50:
+            await _fill_stream(stream)
+    has_more = any(s["queue"] or not s["done"] for s in streams)
+    next_cursor = ""
+    if has_more:
+        next_cursor = secrets.token_urlsafe(24)
+        _cursors[next_cursor] = (now, snapshot)
+        while len(_cursors) > 128:
+            _cursors.popitem(last=False)
+    output.sort(key=lambda m: (int(m["ts"]), m["id"]))
+    return {"messages": output, "cursor": next_cursor, "hasMore": has_more, "number": _number(jid, alt)}
 
 
 _media: OrderedDict[str, tuple[str, bytes]] = OrderedDict()
@@ -243,27 +328,51 @@ async def send(req: Request):
     _need(req)
     body = await req.json()
     text = (body.get("text") or "").strip()
-    if not text:
+    if not text or len(text) > 20000:
         raise HTTPException(400, "texto vazio")
-    d = await _post(f"/message/sendText/{INST}", {"number": body["number"], "text": text})
+    number = str(body.get("number") or "")
+    if not number:
+        raise HTTPException(400, "Destinatário ausente.")
+    request_id = str(body.get("requestId") or "")[:100]
+    payload = {"number": number, "text": text}
+    if request_id:
+        entry = _sends.get(request_id)
+        if entry:
+            if entry[0] != payload:
+                raise HTTPException(409, "Este envio já foi usado para outra mensagem.")
+            task = entry[1]
+        else:
+            if len(_sends) >= 512:
+                finished = next((k for k, v in _sends.items() if v[1].done()), None)
+                if finished is None:
+                    raise HTTPException(429, "Há muitos envios em andamento. Aguarde.")
+                _sends.pop(finished)
+            task = asyncio.create_task(_post(f"/message/sendText/{INST}", payload))
+            _sends[request_id] = (payload, task)
+        d = await asyncio.shield(task)
+    else:
+        d = await _post(f"/message/sendText/{INST}", payload)
     return {"id": (d.get("key") or {}).get("id"), "status": d.get("status")}
+
+
+_sends: OrderedDict[str, tuple[dict, asyncio.Task]] = OrderedDict()
 
 
 @app.post("/api/read")
 async def read(req: Request):
     _need(req)
     body = await req.json()
-    items = [{"remoteJid": body["jid"], "fromMe": False, "id": i} for i in body.get("ids") or []]
+    items = [{"remoteJid": str(k.get("jid") or body.get("jid") or ""), "fromMe": False,
+              "id": str(k.get("id") or ""), **({"participant": k["participant"]} if k.get("participant") else {})}
+             for k in (body.get("keys") or [{"id": i} for i in body.get("ids") or []])[:100]]
+    items = [k for k in items if k["id"] and k["remoteJid"]]
     if not items:
         return {"ok": True}
-    try:
-        await _post(f"/chat/markMessageAsRead/{INST}", {"readMessages": items})
-    except HTTPException as e:
-        return {"ok": False, "err": e.detail}
+    await _post(f"/chat/markMessageAsRead/{INST}", {"readMessages": items})
     return {"ok": True}
 
 
-_trans: dict[str, str] = {}
+_trans: OrderedDict[str, str] = OrderedDict()
 
 
 @app.post("/api/transcribe")
@@ -287,6 +396,8 @@ async def transcribe(req: Request):
             if t.status_code == 200:
                 txt = (t.json().get("texto") or "").strip()
                 _trans[mid] = txt
+                while len(_trans) > 1000:
+                    _trans.popitem(last=False)
                 return {"texto": txt}
             await asyncio.sleep(2)
     raise HTTPException(504, "transcrição demorou demais")
@@ -294,9 +405,19 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(TR_URL)}
+    return {"ok": True, "instance": INST, "transcriber": bool(TR_URL), "version": "2026.09.12.2"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
     return HTML
+
+
+@app.get("/app.js")
+def javascript():
+    return Response((Path(__file__).parent / "app.js").read_text(encoding="utf-8"), media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/style.css")
+def stylesheet():
+    return Response((Path(__file__).parent / "style.css").read_text(encoding="utf-8"), media_type="text/css", headers={"Cache-Control": "no-cache"})
