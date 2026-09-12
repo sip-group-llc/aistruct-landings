@@ -15,6 +15,7 @@ import asyncio
 import base64
 import hmac
 import os
+import re
 import secrets
 import time
 import tempfile
@@ -34,6 +35,9 @@ PASSWORD = os.environ["WA_PASSWORD"]
 SECRET = os.environ.get("WA_SECRET") or secrets.token_urlsafe(32)
 TR_URL = os.environ.get("TRANSCRIBER_URL", "").rstrip("/")
 TR_TOKEN = os.environ.get("TRANSCRIBER_TOKEN", "")
+GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+GROQ_MODEL = os.environ.get("GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3")
+GROQ_LANGUAGE = os.environ.get("GROQ_TRANSCRIPTION_LANGUAGE", "").strip()
 COOKIE = "wa_session"
 HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
@@ -160,6 +164,7 @@ def _norm(rec: dict) -> dict:
         "status": rec.get("status"),
         "quote": {"id": context.get("stanzaId"), "text": qtext, "type": qtype} if quoted else None,
         "transcript": _trans.get(k.get("id")),
+        "transcription": _trans_meta.get(k.get("id")),
         **extra,
     }
 
@@ -189,7 +194,8 @@ async def state(req: Request):
 @app.get("/api/session")
 def session(req: Request):
     _need(req)
-    return {"ok": True, "transcriber": bool(TR_URL), "version": "2026.09.12.3"}
+    return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.12.4"}
 
 
 @app.get("/api/chats")
@@ -321,7 +327,20 @@ async def _fetch_media(jid: str, mid: str) -> tuple[str, bytes]:
 async def media(req: Request, jid: str, id: str):
     _need(req)
     mime, raw = await _fetch_media(jid, id)
-    return Response(raw, media_type=mime.split(";")[0], headers={"Cache-Control": "private, max-age=86400"})
+    headers = {"Cache-Control": "private, max-age=86400", "Accept-Ranges": "bytes"}
+    requested = req.headers.get("range")
+    if requested:
+        match = re.fullmatch(r"bytes=(\d*)-(\d*)", requested)
+        if not match or not any(match.groups()) or not raw:
+            return Response(status_code=416, headers={**headers, "Content-Range": f"bytes */{len(raw)}"})
+        first, last = match.groups()
+        start = int(first) if first else max(0, len(raw) - int(last))
+        end = min(int(last), len(raw) - 1) if first and last else len(raw) - 1
+        if start > end or start >= len(raw):
+            return Response(status_code=416, headers={**headers, "Content-Range": f"bytes */{len(raw)}"})
+        return Response(raw[start:end + 1], status_code=206, media_type=mime.split(";")[0],
+                        headers={**headers, "Content-Range": f"bytes {start}-{end}/{len(raw)}"})
+    return Response(raw, media_type=mime.split(";")[0], headers=headers)
 
 
 @app.post("/api/send")
@@ -461,18 +480,50 @@ async def read(req: Request):
 
 
 _trans: OrderedDict[str, str] = OrderedDict()
+_trans_meta: dict[str, dict] = {}
+_trans_tasks: dict[tuple[str, str], asyncio.Task] = {}
+_trans_slots = asyncio.Semaphore(2)
 
 
-@app.post("/api/transcribe")
-async def transcribe(req: Request):
-    _need(req)
-    if not TR_URL:
-        raise HTTPException(501, "transcriber não configurado")
-    body = await req.json()
-    jid, mid = body["jid"], body["id"]
-    if mid in _trans:
-        return {"texto": _trans[mid]}
-    mime, raw = await _fetch_media(jid, mid)
+async def _groq_transcribe(mime: str, raw: bytes) -> dict:
+    if len(raw) > 25_000_000:
+        raise HTTPException(413, "Este áudio ultrapassa 25 MB. Use um trecho menor para transcrever.")
+    extension = {"audio/ogg": "ogg", "audio/opus": "ogg", "audio/mpeg": "mp3",
+                 "audio/mp4": "m4a", "audio/x-m4a": "m4a", "video/mp4": "mp4",
+                 "audio/webm": "webm", "audio/wav": "wav", "audio/x-wav": "wav",
+                 "audio/flac": "flac"}.get(mime.split(";")[0], "ogg")
+    data = {"model": GROQ_MODEL, "response_format": "verbose_json", "temperature": "0"}
+    if GROQ_LANGUAGE:
+        data["language"] = GROQ_LANGUAGE
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=15)) as client:
+            response = await client.post("https://api.groq.com/openai/v1/audio/transcriptions",
+                                         headers={"Authorization": f"Bearer {GROQ_KEY}"}, data=data,
+                                         files={"file": (f"audio.{extension}", raw, mime.split(";")[0])})
+    except httpx.TimeoutException:
+        raise HTTPException(504, "A transcrição demorou mais que o esperado. Tente novamente em instantes.")
+    except httpx.RequestError:
+        raise HTTPException(502, "Não foi possível conectar ao serviço de transcrição. Tente novamente.")
+    if response.status_code in (401, 403):
+        raise HTTPException(503, "A chave da transcrição não foi aceita. Confira a configuração do serviço.")
+    if response.status_code == 429:
+        raise HTTPException(429, "O limite da transcrição foi atingido. Aguarde um pouco e tente novamente.",
+                            headers={"Retry-After": "60"})
+    if response.status_code >= 400:
+        raise HTTPException(502, "O serviço não conseguiu transcrever este áudio. Tente novamente ou use outro arquivo.")
+    try:
+        result = response.json()
+        text = str(result.get("text") or "").strip()
+        segments = [{"start": max(0, float(s.get("start") or 0)),
+                     "end": max(0, float(s.get("end") or 0)), "text": str(s.get("text") or "").strip()}
+                    for s in (result.get("segments") or []) if str(s.get("text") or "").strip()]
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(502, "A transcrição retornou uma resposta inválida. Tente novamente.")
+    return {"texto": text, "segments": segments, "language": result.get("language"),
+            "model": GROQ_MODEL, "provider": "Groq"}
+
+
+async def _legacy_transcribe(mid: str, mime: str, raw: bytes):
     async with httpx.AsyncClient(timeout=180) as c:
         r = await c.post(f"{TR_URL}/api/upload", headers={"X-Token": TR_TOKEN},
                          files={"file": (f"{mid}.ogg", raw, mime.split(";")[0])})
@@ -483,17 +534,53 @@ async def transcribe(req: Request):
             t = await c.get(f"{TR_URL}/api/jobs/{job}/texto", headers={"X-Token": TR_TOKEN})
             if t.status_code == 200:
                 txt = (t.json().get("texto") or "").strip()
-                _trans[mid] = txt
-                while len(_trans) > 1000:
-                    _trans.popitem(last=False)
-                return {"texto": txt}
+                return {"texto": txt, "provider": "local", "segments": []}
             await asyncio.sleep(2)
     raise HTTPException(504, "transcrição demorou demais")
 
 
+async def _transcribe_message(jid: str, mid: str):
+    async with _trans_slots:
+        mime, raw = await _fetch_media(jid, mid)
+        result = await _groq_transcribe(mime, raw) if GROQ_KEY else await _legacy_transcribe(mid, mime, raw)
+        _trans[mid] = result["texto"]
+        _trans_meta[mid] = {k: v for k, v in result.items() if k != "texto"}
+        while len(_trans) > 1000:
+            removed, _ = _trans.popitem(last=False)
+            _trans_meta.pop(removed, None)
+        return result
+
+
+@app.post("/api/transcribe")
+async def transcribe(req: Request):
+    _need(req)
+    if not GROQ_KEY and not TR_URL:
+        raise HTTPException(501, "Transcrição não configurada.")
+    body = await req.json()
+    jid, mid = str(body.get("jid") or ""), str(body.get("id") or "")
+    if not jid or not mid or len(jid) > 150 or len(mid) > 150:
+        raise HTTPException(400, "Identificação do áudio inválida.")
+    if mid in _trans:
+        return {"texto": _trans[mid], **_trans_meta.get(mid, {}), "cached": True}
+    key = (jid, mid)
+    task = _trans_tasks.get(key)
+    if task is None:
+        if len(_trans_tasks) >= 32:
+            raise HTTPException(429, "Há muitas transcrições em andamento. Aguarde um pouco.")
+        task = asyncio.create_task(_transcribe_message(jid, mid))
+        _trans_tasks[key] = task
+        def finished(completed):
+            if _trans_tasks.get(key) is completed:
+                _trans_tasks.pop(key, None)
+            if not completed.cancelled():
+                completed.exception()  # consume errors even if the HTTP client disconnected
+        task.add_done_callback(finished)
+    return await asyncio.shield(task)
+
+
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(TR_URL), "version": "2026.09.12.3"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.12.4"}
 
 
 @app.get("/", response_class=HTMLResponse)

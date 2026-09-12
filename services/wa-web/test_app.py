@@ -12,7 +12,7 @@ from unittest.mock import patch
 import httpx
 
 for key, value in {"EVOLUTION_URL": "https://evolution.invalid", "EVOLUTION_APIKEY": "test",
-                   "WA_PASSWORD": "test-password", "WA_SECRET": "test-secret", "TRANSCRIBER_URL": ""}.items():
+                   "WA_PASSWORD": "test-password", "WA_SECRET": "test-secret", "TRANSCRIBER_URL": "", "GROQ_API_KEY": ""}.items():
     os.environ[key] = value
 spec = importlib.util.spec_from_file_location("wa_under_test", Path(__file__).with_name("app.py"))
 wa = importlib.util.module_from_spec(spec)
@@ -27,6 +27,7 @@ def record(jid, n, ts, from_me=False):
 class AppTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         wa._cursors.clear(); wa._sends.clear(); wa._fails.clear()
+        wa._trans.clear(); wa._trans_meta.clear(); wa._trans_tasks.clear()
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=wa.app), base_url="https://test")
         self.client.cookies.set(wa.COOKIE, wa._token)
 
@@ -41,7 +42,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         login = await self.client.post('/api/login', json={"senha": "test-password"})
         self.assertEqual(login.status_code, 200)
         self.assertIn('Secure', login.headers['set-cookie'])
-        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.3')
+        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.4')
         for asset in ('/', '/app.js', '/style.css'):
             self.assertEqual((await self.client.get(asset)).status_code, 200)
 
@@ -53,6 +54,57 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manifest['display'], 'standalone')
         self.assertEqual((await self.client.post('/api/send-audio?number=test&requestId=one',content=b'abc')).status_code,401)
         self.assertEqual((await self.client.get('/app.py')).status_code,404)
+
+    async def test_groq_model_multipart_and_segments(self):
+        original=httpx.AsyncClient
+        def handler(request):
+            self.assertEqual(str(request.url),'https://api.groq.com/openai/v1/audio/transcriptions')
+            self.assertEqual(request.headers['Authorization'],'Bearer test-key')
+            self.assertIn(b'whisper-large-v3',request.content)
+            self.assertIn(b'filename="audio.ogg"',request.content)
+            self.assertNotIn(b'name="language"',request.content)
+            return httpx.Response(200,json={'text':'Bom dia.','language':'portuguese','segments':[{'start':0,'end':2,'text':'Bom dia.'}]})
+        with patch.object(wa,'GROQ_KEY','test-key'),patch.object(wa,'GROQ_LANGUAGE',''),patch.object(wa.httpx,'AsyncClient',lambda **kwargs: original(transport=httpx.MockTransport(handler),**kwargs)):
+            result=await wa._groq_transcribe('audio/ogg;codecs=opus',b'synthetic')
+        self.assertEqual(result['texto'],'Bom dia.');self.assertEqual(result['segments'][0]['start'],0)
+        self.assertEqual(result['provider'],'Groq')
+
+    async def test_media_ranges_for_transcript_seek(self):
+        async def media(jid,mid):return 'audio/ogg',b'0123456789'
+        with patch.object(wa,'_fetch_media',media):
+            for requested,expected,content_range in [('bytes=3-5',b'345','bytes 3-5/10'),('bytes=7-',b'789','bytes 7-9/10'),('bytes=-2',b'89','bytes 8-9/10')]:
+                result=await self.client.get('/api/media?jid=test&id=voice',headers={'Range':requested})
+                self.assertEqual(result.status_code,206);self.assertEqual(result.content,expected)
+                self.assertEqual(result.headers['content-range'],content_range)
+            invalid=await self.client.get('/api/media?jid=test&id=voice',headers={'Range':'bytes=100-'})
+            self.assertEqual(invalid.status_code,416)
+            self.client.cookies.clear()
+            self.assertEqual((await self.client.get('/api/media?jid=test&id=voice',headers={'Range':'bytes=0-'})).status_code,401)
+
+    async def test_groq_errors_are_sanitized(self):
+        original=httpx.AsyncClient
+        for upstream,expected in [(401,503),(429,429),(500,502)]:
+            def handler(request):return httpx.Response(upstream,json={'error':'sensitive provider details'})
+            with patch.object(wa.httpx,'AsyncClient',lambda **kwargs: original(transport=httpx.MockTransport(handler),**kwargs)):
+                with self.assertRaises(wa.HTTPException) as error:await wa._groq_transcribe('audio/ogg',b'synthetic')
+            self.assertEqual(error.exception.status_code,expected)
+            self.assertNotIn('sensitive',error.exception.detail)
+
+    async def test_transcription_single_flight_cache_and_empty_speech(self):
+        calls=[]
+        async def media(jid,mid):return 'audio/ogg',b'synthetic'
+        async def transcribe(mime,raw):
+            calls.append(1);await asyncio.sleep(.03)
+            return {'texto':'','segments':[],'model':'whisper-large-v3','provider':'Groq'}
+        with patch.object(wa,'GROQ_KEY','test-key'),patch.object(wa,'_fetch_media',media),patch.object(wa,'_groq_transcribe',transcribe):
+            payload={'jid':'test@lid','id':'voice-test'}
+            a,b=await asyncio.gather(self.client.post('/api/transcribe',json=payload),self.client.post('/api/transcribe',json=payload))
+            self.assertEqual(a.status_code,200);self.assertEqual(a.json(),b.json());self.assertEqual(len(calls),1)
+            cached=(await self.client.post('/api/transcribe',json=payload)).json()
+            self.assertTrue(cached['cached']);self.assertEqual(len(calls),1)
+            self.assertEqual(wa._norm({'key':{'id':'voice-test'},'message':{'audioMessage':{}}})['transcription']['model'],'whisper-large-v3')
+            self.client.cookies.clear()
+            self.assertEqual((await self.client.post('/api/transcribe',json=payload)).status_code,401)
 
     async def test_audio_duplicate_conflict_and_validation(self):
         calls=[]

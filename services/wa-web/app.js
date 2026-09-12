@@ -77,7 +77,7 @@ const atBottom=()=>$('#msgs').scrollHeight-$('#msgs').scrollTop-$('#msgs').clien
 function captureAnchor(){const box=$('#msgs'),top=box.getBoundingClientRect().top;const first=Array.from($('#messages').children).find(n=>n.getBoundingClientRect().bottom>top);return first?{node:first,offset:first.getBoundingClientRect().top-top}:null;}
 function restoreAnchor(anchor){if(anchor?.node.isConnected){const box=$('#msgs');box.scrollTop+=anchor.node.getBoundingClientRect().top-box.getBoundingClientRect().top-anchor.offset;}}
 function chatError(message){$('#chat-error span').textContent=message;$('#chat-error').hidden=false;}
-function mergeMessages(s,list){let added=0;for(const m of list){if(!m.id)continue;const old=s.messages.get(m.id);if(!old)added++;s.messages.set(m.id,{...old,...m,localStatus:undefined,transcript:m.transcript||old?.transcript});}return added;}
+function mergeMessages(s,list){let added=0;for(const m of list){if(!m.id)continue;const old=s.messages.get(m.id);if(!old)added++;s.messages.set(m.id,{...old,...m,localStatus:undefined,transcript:m.transcript??old?.transcript,transcription:m.transcription??old?.transcription});}return added;}
 async function loadChat(s=current,older=false){if(!s||!session||s.loading||s.older||older&&!s.hasMore)return;
  s[older?'older':'loading']=true;const epoch=authEpoch,wasInitialized=s.initialized;
  if(current===s){$('#refresh-chat').disabled=true;$('#more').disabled=true;$('#more').textContent=older?'Carregando…':'Carregar anteriores';}
@@ -96,7 +96,7 @@ function renderMessages(s){if(current!==s)return;const list=Array.from(s.message
  for(const m of list){if(m.type==='reaction'&&m.to){const actor=m.fromMe?'me':m.participantJid||m.participant||m.who||m.id;const bucket=reactions.get(m.to)||new Map();bucket.set(actor,m.text);reactions.set(m.to,bucket);}}
  for(const m of list){if(m.type==='reaction'||m.type==='other'&&/protocol|album|senderKey/i.test(m.kind||''))continue;
   const day=dayKey(m.ts);if(day!==lastDay){let d=s.days.get(day);if(!d){d=document.createElement('div');d.className='day';s.days.set(day,d);}d.textContent=dayLabel(m.ts);nodes.push(d);lastDay=day;previous=null;}
-  let node=s.nodes.get(m.id);const signature=JSON.stringify([m.type,m.text,m.quote,m.fileName,m.transcript,m.localStatus]);
+  let node=s.nodes.get(m.id);const signature=JSON.stringify([m.type,m.text,m.quote,m.fileName,m.transcript,m.transcription,m.localStatus]);
   if(!node||node.dataset.signature!==signature){node=bubble(m,s);node.dataset.signature=signature;s.nodes.set(m.id,node);}
   node.classList.toggle('grouped',Boolean(previous&&previous.fromMe===m.fromMe&&previous.who===m.who&&m.ts-previous.ts<180));
   const receipt=node.querySelector('.receipt');if(receipt){const status=m.fromMe?msgStatus(m):'';receipt.textContent=status;receipt.title=status;receipt.setAttribute('aria-label',status);receipt.dataset.symbol=/Lida|Reproduzida|Entregue/.test(status)?'✓✓':status==='Enviada'?'✓':status==='Enviando…'?'◷':status?'!':'';receipt.classList.toggle('read',/Lida|Reproduzida/.test(status));receipt.classList.toggle('pending',!/Enviada|Entregue|Lida|Reproduzida/.test(status));}
@@ -109,16 +109,16 @@ function renderMessages(s){if(current!==s)return;const list=Array.from(s.message
  searchMessages(false);
 }
 function bubble(m,s){const d=document.createElement('article');d.className='m'+(m.fromMe?' me':'')+(m.type==='audio'?' audio':'')+(['image','sticker','video'].includes(m.type)?' photo':'')+(m.localStatus?.includes('confirmado')?' failed':'');d.dataset.id=m.id;
- const mediaJid=m.jid||s.chat.jid,src=m.localUrl||'/api/media?'+new URLSearchParams({jid:mediaJid,id:m.id});
+ const mediaJid=m.jid||s.chat.jid,src=m.localUrl||'/api/media?'+new URLSearchParams({jid:mediaJid,id:m.id,v:'4'});
  let html=(!m.fromMe&&s.chat.group?`<div class="who">${esc(m.who||m.participant||'Participante')}</div>`:'');
  if(m.quote)html+=`<div class="quote" aria-label="Mensagem citada">${esc(m.quote.text||({image:'Foto',audio:'Áudio',video:'Vídeo',document:'Documento'}[m.quote.type]||'Mensagem citada'))}</div>`;
  if(m.type==='text')html+=`<div class="body-text">${linkify(m.text)}</div>`;
  else if(m.type==='image'||m.type==='sticker')html+=`<button type="button" class="media-open" aria-label="Abrir imagem"><img src="${esc(src)}" alt="${esc(m.text||'Imagem recebida')}" loading="lazy" width="320" height="220"></button><div class="body-text">${linkify(m.text)}</div>`;
  else if(m.type==='video')html+=`<video controls playsinline preload="metadata" src="${esc(src)}" aria-label="Vídeo da conversa"></video><div class="body-text">${linkify(m.text)}</div>`;
- else if(m.type==='audio')html+=`<div class="audio-caption"><span>Áudio${m.seconds?' · '+duration(m.seconds):''}</span><button type="button" class="speed" aria-label="Alterar velocidade do áudio">1×</button></div><audio controls preload="none" src="${esc(src)}" aria-label="Áudio da conversa"></audio>${canTranscribe&&!m.transcript?'<button type="button" class="transcribe ghost">Transcrever áudio</button>':''}`;
+ else if(m.type==='audio')html+=`<div class="audio-caption"><span>Áudio${m.seconds?' · '+duration(m.seconds):''}</span><button type="button" class="speed" aria-label="Alterar velocidade do áudio">1×</button></div><audio controls preload="none" src="${esc(src)}" aria-label="Áudio da conversa"></audio>${canTranscribe&&!m.transcript&&!m.transcription?'<button type="button" class="transcribe ghost">Transcrever áudio</button>':''}`;
  else if(m.type==='document')html+=`<a class="document" href="${esc(src)}" download="${esc(m.fileName||'documento')}">${icon('file')}<span>${esc(m.fileName||'Documento')}<small>${esc(m.mime||'Arquivo')}${Number(m.size)?' · '+Math.ceil(Number(m.size)/1024)+' KB':''}</small></span></a><div class="body-text">${linkify(m.text)}</div>`;
  else html+='<div class="body-text muted">Mensagem não disponível neste visualizador.</div>';
- if(m.transcript)html+=`<details class="transcript" open><summary>Transcrição</summary><p>${esc(m.transcript)}</p><button type="button" class="copy-transcript ghost">Copiar transcrição</button></details>`;
+ if(m.transcript||m.transcription)html+=`<details class="transcript" open><summary>Transcrição</summary><p>${esc(m.transcript||"Nenhuma fala identificada neste áudio.")}</p>${m.transcript?'<button type="button" class="copy-transcript ghost">Copiar transcrição</button>':''}${transcriptSegments(m)}</details>`;
  html+='<div class="reaction-line" hidden></div>';
  html+=`<div class="stamp"><time datetime="${new Date(m.ts*1000).toISOString()}" title="${esc(new Date(m.ts*1000).toLocaleString('pt-BR'))}">${fmtTime(m.ts)}</time><span class="receipt">${esc(m.fromMe?msgStatus(m):'')}</span></div>`;
  if(m.localStatus==='Envio não confirmado')html+='<div class="message-actions"><button type="button" class="verify-send ghost">Verificar conversa</button><button type="button" class="copy-message ghost">Copiar texto</button></div>';
@@ -127,11 +127,37 @@ function bubble(m,s){const d=document.createElement('article');d.className='m'+(
  d.querySelector('.speed')?.addEventListener('click',e=>{const audio=d.querySelector('audio'),rates=[1,1.5,2],rate=rates[(rates.indexOf(audio.playbackRate)+1)%rates.length];audio.playbackRate=rate;e.currentTarget.textContent=String(rate).replace('.',',')+'×';});
  d.querySelector('audio')?.addEventListener('play',e=>{document.querySelectorAll('audio').forEach(a=>{if(a!==e.target)a.pause();});});
  d.querySelector('.transcribe')?.addEventListener('click',e=>transcribe(m,s,e.currentTarget));
+ d.querySelectorAll('.transcript-seek').forEach(button=>button.addEventListener('click',()=>{
+  const audio=d.querySelector('audio');if(!audio)return;
+  const seek=()=>{audio.currentTime=Number(button.dataset.start)||0;audio.play().catch(()=>toast('Toque em reproduzir no áudio para continuar.'));};
+  if(audio.readyState>=1)seek();else{audio.addEventListener('loadedmetadata',seek,{once:true});audio.load();}
+ }));
  d.querySelector('.copy-transcript')?.addEventListener('click',()=>copy(m.transcript));d.querySelector('.copy-message')?.addEventListener('click',()=>copy(m.text));d.querySelector('.verify-send')?.addEventListener('click',()=>loadChat(s));
  for(const media of d.querySelectorAll('img,video,audio')){media.addEventListener('error',()=>{if(d.querySelector('.media-error'))return;const error=document.createElement('div');error.className='media-error';error.textContent='Mídia indisponível. ';const retry=document.createElement('button');retry.className='ghost';retry.textContent='Tentar novamente';retry.onclick=()=>{error.remove();media.src=src+'&retry='+Date.now();};error.append(retry);media.after(error);});}
  return d;
 }
-async function transcribe(m,s,button){button.disabled=true;button.textContent='Transcrevendo…';try{const result=await post('/api/transcribe',{jid:m.jid||s.chat.jid,id:m.id},{timeout:240000});m.transcript=result.texto||'(Sem fala identificada)';s.messages.set(m.id,{...s.messages.get(m.id),transcript:m.transcript});if(current===s){const anchor=captureAnchor();renderMessages(s);restoreAnchor(anchor);}}catch(e){button.disabled=false;button.textContent='Tentar transcrição novamente';toast(e.message);}}
+function transcriptSegments(m){
+ const segments=m.transcription?.segments||[];
+ if(!segments.length)return '';
+ return '<details class="transcript-segments"><summary>Ouvir por trecho</summary>'+segments.map(segment=>`<button type="button" class="transcript-seek" data-start="${Math.max(0,Number(segment.start)||0)}"><time>${duration(Math.floor(Number(segment.start)||0))}</time><span>${esc(segment.text)}</span></button>`).join('')+'</details>';
+}
+async function transcribe(m,s,button){
+ if(button.disabled)return;
+ button.disabled=true;button.setAttribute('aria-busy','true');
+ const started=Date.now();button.textContent='Transcrevendo…';
+ const timer=setInterval(()=>{button.textContent='Transcrevendo… '+duration(Math.floor((Date.now()-started)/1000));},1000);
+ const previousError=button.parentElement.querySelector('.transcription-error');previousError?.remove();
+ try{
+  const result=await post('/api/transcribe',{jid:m.jid||s.chat.jid,id:m.id},{timeout:330000});
+  m.transcript=result.texto||'';m.transcription={segments:result.segments||[],language:result.language,provider:result.provider,model:result.model};
+  s.messages.set(m.id,{...s.messages.get(m.id),transcript:m.transcript,transcription:m.transcription});
+  if(current===s){const anchor=captureAnchor();renderMessages(s);restoreAnchor(anchor);}
+ }catch(e){
+  button.disabled=false;button.textContent='Tentar transcrição novamente';
+  const error=document.createElement('p');error.className='transcription-error';error.setAttribute('role','alert');error.textContent=e.message;button.after(error);
+ }finally{clearInterval(timer);button.removeAttribute('aria-busy');}
+}
+
 async function copy(text){try{await navigator.clipboard.writeText(text);toast('Copiado.');}catch{toast('Não foi possível copiar. Selecione o texto para copiar manualmente.');}}
 function resizeComposer(){const t=$('#txt');t.style.height='auto';t.style.height=Math.min(160,Math.max(46,t.scrollHeight))+'px';$('#send').disabled=!current||current.sending||!t.value.trim();$('#send').setAttribute('aria-label',current?.sending?'Enviando mensagem':'Enviar mensagem');$('#send .send-label').textContent=current?.sending?'Enviando…':'Enviar';window.voiceUX?.sync();}
 async function sendMessage(){const s=current,text=$('#txt').value.trim();if(!s||s.sending||!text||!session)return;
