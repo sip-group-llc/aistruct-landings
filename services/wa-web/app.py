@@ -100,6 +100,28 @@ async def _post(path: str, body: dict | None = None) -> dict | list:
     return r.json()
 
 
+def _contact(card: dict) -> dict:
+    """Extract display fields only; never expose or execute arbitrary vCard URLs."""
+    name = str(card.get("displayName") or "").strip()
+    phones = []
+    lines = re.sub(r"\r?\n[ \t]", "", str(card.get("vcard") or "")).splitlines()
+    for line in lines:
+        header, sep, value = line.partition(":")
+        if not sep:
+            continue
+        field = header.split(";", 1)[0].split(".")[-1].upper()
+        if field == "FN" and not name:
+            name = re.sub(r"\\([nN,;\\])", lambda m: " " if m[1].lower() == "n" else m[1], value).strip()
+        if field != "TEL":
+            continue
+        waid = re.search(r'(?:^|;)waid="?([0-9]{7,15})"?(?:;|$)', header, re.I)
+        raw = re.sub(r"^tel:", "", value.strip(), flags=re.I)
+        number = waid[1] if waid else re.sub(r"[+().\s-]", "", raw)
+        if re.fullmatch(r"[0-9]{7,15}", number) and number not in phones:
+            phones.append(number)
+    return {"name": name or "Contato compartilhado", "phones": phones}
+
+
 def _body(msg: dict) -> tuple[str, str, dict]:
     """(tipo, texto, extra) a partir de message{}."""
     m = msg.get("message") or {}
@@ -132,7 +154,11 @@ def _body(msg: dict) -> tuple[str, str, dict]:
         loc = m["locationMessage"]
         return "text", f"📍 {loc.get('degreesLatitude')},{loc.get('degreesLongitude')}", {}
     if m.get("contactMessage"):
-        return "text", "👤 " + m["contactMessage"].get("displayName", "contato"), {}
+        contact = _contact(m["contactMessage"])
+        return "contact", contact["name"], {"contacts": [contact]}
+    if m.get("contactsArrayMessage"):
+        contacts = [_contact(c) for c in m["contactsArrayMessage"].get("contacts", []) if isinstance(c, dict)]
+        return "contact", ", ".join(c["name"] for c in contacts), {"contacts": contacts}
     keys = [k for k in m if k != "messageContextInfo"]
     return "other", "", {"kind": keys[0] if keys else "?"}
 
@@ -195,7 +221,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.12.4"}
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.12.5"}
 
 
 @app.get("/api/chats")
@@ -580,7 +606,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.12.4"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.12.5"}
 
 
 @app.get("/", response_class=HTMLResponse)

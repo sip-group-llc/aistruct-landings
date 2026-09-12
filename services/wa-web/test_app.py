@@ -25,6 +25,22 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    def test_shared_contact_vcard(self):
+        card = {'vcard': 'BEGIN:VCARD\r\nFN:Hugo\\, Silva\r\nTEL;waid=5511999998888:+55 11 1111-2222\r\nTEL;TYPE=CELL:tel:+55 (11) 99999-8888\r\nTEL:+351 912\r\n 345678\r\nTEL:javascript:123456789\r\nEND:VCARD'}
+        typ, text, extra = wa._body({'message': {'ephemeralMessage': {'message': {'contactMessage': card}}}})
+        self.assertEqual(typ, 'contact')
+        self.assertEqual(text, 'Hugo, Silva')
+        self.assertEqual(extra['contacts'][0]['phones'], ['5511999998888', '351912345678'])
+
+    def test_shared_contacts_array_and_missing_phone(self):
+        typ, text, extra = wa._body({'message': {'contactsArrayMessage': {'contacts': [
+            {'displayName': '<Hugo>', 'vcard': 'TEL;waid=5511999998888:ignored'},
+            {'displayName': 'Sem telefone', 'vcard': 'TEL:invalid123456789'}]}}})
+        self.assertEqual(typ, 'contact')
+        self.assertEqual(len(extra['contacts']), 2)
+        self.assertEqual(extra['contacts'][1]['phones'], [])
+        self.assertEqual(extra['contacts'][0]['name'], '<Hugo>')
+
     async def asyncSetUp(self):
         wa._cursors.clear(); wa._sends.clear(); wa._fails.clear()
         wa._trans.clear(); wa._trans_meta.clear(); wa._trans_tasks.clear()
@@ -42,7 +58,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         login = await self.client.post('/api/login', json={"senha": "test-password"})
         self.assertEqual(login.status_code, 200)
         self.assertIn('Secure', login.headers['set-cookie'])
-        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.4')
+        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.5')
         for asset in ('/', '/app.js', '/style.css'):
             self.assertEqual((await self.client.get(asset)).status_code, 200)
 

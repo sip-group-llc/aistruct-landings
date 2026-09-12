@@ -44,7 +44,7 @@ async function api(path,options={}){
 const post=(path,body,extra={})=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),...extra});
 function avatar(c){const el=document.createElement('span');el.className='avatar'+(c.group?' group':'');el.setAttribute('aria-hidden','true');el.textContent=c.group?'G':String(c.name||c.number||'?').trim().split(/\s+/).slice(0,2).map(x=>Array.from(x)[0]).join('').toUpperCase();
  if(c.pic&&/^https:\/\//i.test(c.pic)){const img=new Image();img.alt='';img.loading='lazy';img.width=46;img.height=46;img.referrerPolicy='no-referrer';img.onerror=()=>img.remove();img.src=c.pic;el.append(img);}return el;}
-function preview(c){if(drafts[keyFor(c)])return 'Rascunho: '+drafts[keyFor(c)];const labels={audio:'Áudio'+(c.seconds?' · '+duration(c.seconds):''),image:'Foto',video:'Vídeo',sticker:'Figurinha',document:'Documento',reaction:'Reação',other:'Mensagem'};const prefix=c.fromMe?'Você: ':c.group?(c.who?c.who+': ':'Grupo · '):'';return prefix+(c.ptype==='text'?'':(labels[c.ptype]||'Mensagem')+(c.preview?' · ':''))+(c.preview||'');}
+function preview(c){if(drafts[keyFor(c)])return 'Rascunho: '+drafts[keyFor(c)];const labels={audio:'Áudio'+(c.seconds?' · '+duration(c.seconds):''),image:'Foto',video:'Vídeo',sticker:'Figurinha',document:'Documento',contact:'Contato',reaction:'Reação',other:'Mensagem'};const prefix=c.fromMe?'Você: ':c.group?(c.who?c.who+': ':'Grupo · '):'';return prefix+(c.ptype==='text'?'':(labels[c.ptype]||'Mensagem')+(c.preview?' · ':''))+(c.preview||'');}
 function reconcile(parent,nodes){nodes.forEach((node,i)=>{if(parent.children[i]!==node)parent.insertBefore(node,parent.children[i]||null);});while(parent.children.length>nodes.length)parent.lastElementChild.remove();}
 function renderList(){
  const q=fold($('#q').value.trim()),digits=q.replace(/\D/g,'');$('#clear-search').hidden=!q;
@@ -63,7 +63,7 @@ function renderList(){
 }
 function setFilter(value){filter=value;document.querySelectorAll('[data-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.filter===filter)));renderList();}
 function renderSync(){const st=$('#state');st.classList.toggle('off',Boolean(syncError)||connection!=='open');st.textContent=syncError?(lastSync?`Atualização falhou · última às ${fmtTime(lastSync/1000)}`:'Sem conexão com suas conversas'):connection==='open'?(lastSync?`WhatsApp conectado · atualizado às ${fmtTime(lastSync/1000)}`:'WhatsApp conectado · carregando…'):`WhatsApp ${connection==='unknown'?'não verificado':'desconectado'}${lastSync?' · lista às '+fmtTime(lastSync/1000):''}`;st.title=syncError;}
-async function loadList(){if(listBusy||!session)return;listBusy=true;const epoch=authEpoch;$('#refresh-list').disabled=true;if(!chats.length)renderList();try{const data=await api('/api/chats',{timeout:120000});if(epoch!==authEpoch)return;chats=data;lastSync=Date.now();syncError='';if(current){const c=chats.find(x=>keyFor(x)===current.key);if(c)current.chat=c;}renderList();}catch(e){syncError=e.message;if(session)renderList();}finally{listBusy=false;$('#refresh-list').disabled=false;renderSync();}}
+async function loadList(){if(listBusy||!session)return;listBusy=true;const epoch=authEpoch;$('#refresh-list').disabled=true;if(!chats.length)renderList();try{const data=await api('/api/chats',{timeout:120000});if(epoch!==authEpoch)return;chats=[...chats.filter(c=>c.shared&&!data.some(x=>keyFor(x)===keyFor(c))),...data];lastSync=Date.now();syncError='';if(current){const c=chats.find(x=>keyFor(x)===current.key);if(c)current.chat=c;}renderList();}catch(e){syncError=e.message;if(session)renderList();}finally{listBusy=false;$('#refresh-list').disabled=false;renderSync();}}
 async function checkState(){if(stateBusy||!session)return;stateBusy=true;try{const data=await api('/api/state');connection=data.instance?.state||'unknown';}catch{connection='unknown';}finally{stateBusy=false;renderSync();}}
 function getState(c){const key=keyFor(c);let s=states.get(key);if(!s){s={key,chat:c,messages:new Map(),nodes:new Map(),days:new Map(),cursor:'',hasMore:false,initialized:false,loading:false,older:false,sending:false,scroll:0,atBottom:true,newCount:0,read:new Set(),visible:new Set(),readBusy:false,readFailed:false};states.set(key,s);}s.chat=c;return s;}
 function saveCurrent(){window.voiceUX?.leave();if(!current)return;current.scroll=$('#msgs').scrollTop;current.atBottom=atBottom();drafts[current.key]=$('#txt').value;persistDrafts();current.visible.clear();readObserver.disconnect();}
@@ -73,6 +73,14 @@ function openChat(c,push=true){saveCurrent();current=getState(c);const s=current
  loadChat(s);if(matchMedia('(min-width:960px)').matches)$('#txt').focus({preventScroll:true});
 }
 function closeChat(){saveCurrent();current=null;$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;renderList();$('#q').focus({preventScroll:true});}
+function openSharedContact(contact,number){
+ if(!/^[0-9]{7,15}$/.test(number))return;
+ let c=chats.find(c=>!c.group&&String(c.number).replace(/\D/g,'')===number);
+ if(!c){c={jid:number+'@s.whatsapp.net',jids:[],number,name:contact.name,group:false,unread:0,ts:0,preview:'',ptype:'text',shared:true};chats.unshift(c);}
+ const previous=current?.key;
+ if(previous&&previous!==keyFor(c))history.pushState({waKey:keyFor(c)},'');
+ openChat(c,false);
+}
 const atBottom=()=>$('#msgs').scrollHeight-$('#msgs').scrollTop-$('#msgs').clientHeight<85;
 function captureAnchor(){const box=$('#msgs'),top=box.getBoundingClientRect().top;const first=Array.from($('#messages').children).find(n=>n.getBoundingClientRect().bottom>top);return first?{node:first,offset:first.getBoundingClientRect().top-top}:null;}
 function restoreAnchor(anchor){if(anchor?.node.isConnected){const box=$('#msgs');box.scrollTop+=anchor.node.getBoundingClientRect().top-box.getBoundingClientRect().top-anchor.offset;}}
@@ -96,7 +104,7 @@ function renderMessages(s){if(current!==s)return;const list=Array.from(s.message
  for(const m of list){if(m.type==='reaction'&&m.to){const actor=m.fromMe?'me':m.participantJid||m.participant||m.who||m.id;const bucket=reactions.get(m.to)||new Map();bucket.set(actor,m.text);reactions.set(m.to,bucket);}}
  for(const m of list){if(m.type==='reaction'||m.type==='other'&&/protocol|album|senderKey/i.test(m.kind||''))continue;
   const day=dayKey(m.ts);if(day!==lastDay){let d=s.days.get(day);if(!d){d=document.createElement('div');d.className='day';s.days.set(day,d);}d.textContent=dayLabel(m.ts);nodes.push(d);lastDay=day;previous=null;}
-  let node=s.nodes.get(m.id);const signature=JSON.stringify([m.type,m.text,m.quote,m.fileName,m.transcript,m.transcription,m.localStatus]);
+  let node=s.nodes.get(m.id);const signature=JSON.stringify([m.type,m.text,m.contacts,m.quote,m.fileName,m.transcript,m.transcription,m.localStatus]);
   if(!node||node.dataset.signature!==signature){node=bubble(m,s);node.dataset.signature=signature;s.nodes.set(m.id,node);}
   node.classList.toggle('grouped',Boolean(previous&&previous.fromMe===m.fromMe&&previous.who===m.who&&m.ts-previous.ts<180));
   const receipt=node.querySelector('.receipt');if(receipt){const status=m.fromMe?msgStatus(m):'';receipt.textContent=status;receipt.title=status;receipt.setAttribute('aria-label',status);receipt.dataset.symbol=/Lida|Reproduzida|Entregue/.test(status)?'✓✓':status==='Enviada'?'✓':status==='Enviando…'?'◷':status?'!':'';receipt.classList.toggle('read',/Lida|Reproduzida/.test(status));receipt.classList.toggle('pending',!/Enviada|Entregue|Lida|Reproduzida/.test(status));}
@@ -113,6 +121,7 @@ function bubble(m,s){const d=document.createElement('article');d.className='m'+(
  let html=(!m.fromMe&&s.chat.group?`<div class="who">${esc(m.who||m.participant||'Participante')}</div>`:'');
  if(m.quote)html+=`<div class="quote" aria-label="Mensagem citada">${esc(m.quote.text||({image:'Foto',audio:'Áudio',video:'Vídeo',document:'Documento'}[m.quote.type]||'Mensagem citada'))}</div>`;
  if(m.type==='text')html+=`<div class="body-text">${linkify(m.text)}</div>`;
+ else if(m.type==='contact')html+=(m.contacts||[]).map((contact,i)=>`<section class="shared-contact"><strong>${esc(contact.name)}</strong>${contact.phones.length?contact.phones.map((number,j)=>`<div class="shared-phone"><button type="button" class="contact-open" data-contact="${i}" data-phone="${j}" aria-label="Conversar com ${esc(contact.name)} pelo número ${esc(number)}">${icon('chat')}<span>${esc(phone({number}))}<small>Conversar</small></span></button><button type="button" class="contact-copy ghost" data-contact="${i}" data-phone="${j}" aria-label="Copiar número ${esc(number)}">Copiar</button></div>`).join(''):'<p class="muted">Este contato foi compartilhado sem número.</p>'}</section>`).join('')||'<p>Contato sem dados disponíveis.</p>';
  else if(m.type==='image'||m.type==='sticker')html+=`<button type="button" class="media-open" aria-label="Abrir imagem"><img src="${esc(src)}" alt="${esc(m.text||'Imagem recebida')}" loading="lazy" width="320" height="220"></button><div class="body-text">${linkify(m.text)}</div>`;
  else if(m.type==='video')html+=`<video controls playsinline preload="metadata" src="${esc(src)}" aria-label="Vídeo da conversa"></video><div class="body-text">${linkify(m.text)}</div>`;
  else if(m.type==='audio')html+=`<div class="audio-caption"><span>Áudio${m.seconds?' · '+duration(m.seconds):''}</span><button type="button" class="speed" aria-label="Alterar velocidade do áudio">1×</button></div><audio controls preload="none" src="${esc(src)}" aria-label="Áudio da conversa"></audio>${canTranscribe&&!m.transcript&&!m.transcription?'<button type="button" class="transcribe ghost">Transcrever áudio</button>':''}`;
@@ -123,6 +132,7 @@ function bubble(m,s){const d=document.createElement('article');d.className='m'+(
  html+=`<div class="stamp"><time datetime="${new Date(m.ts*1000).toISOString()}" title="${esc(new Date(m.ts*1000).toLocaleString('pt-BR'))}">${fmtTime(m.ts)}</time><span class="receipt">${esc(m.fromMe?msgStatus(m):'')}</span></div>`;
  if(m.localStatus==='Envio não confirmado')html+='<div class="message-actions"><button type="button" class="verify-send ghost">Verificar conversa</button><button type="button" class="copy-message ghost">Copiar texto</button></div>';
  d.innerHTML=html;
+ d.querySelectorAll('.contact-open,.contact-copy').forEach(button=>button.addEventListener('click',()=>{const contact=m.contacts[Number(button.dataset.contact)],number=contact.phones[Number(button.dataset.phone)];if(button.classList.contains('contact-copy'))copy(number);else openSharedContact(contact,number);}));
  d.querySelector('.media-open')?.addEventListener('click',()=>{const image=$('#full-image');image.src=src;image.classList.remove('zoomed');$('#zoom-image').textContent='Ampliar';$('#download-image').href=src;$('#media-dialog').showModal();});
  d.querySelector('.speed')?.addEventListener('click',e=>{const audio=d.querySelector('audio'),rates=[1,1.5,2],rate=rates[(rates.indexOf(audio.playbackRate)+1)%rates.length];audio.playbackRate=rate;e.currentTarget.textContent=String(rate).replace('.',',')+'×';});
  d.querySelector('audio')?.addEventListener('play',e=>{document.querySelectorAll('audio').forEach(a=>{if(a!==e.target)a.pause();});});
