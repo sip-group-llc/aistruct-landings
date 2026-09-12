@@ -25,6 +25,34 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_image_send_payload_and_deduplication(self):
+        import base64
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT1sAAAAASUVORK5CYII=')
+        calls=[]
+        async def upstream(path, body):
+            calls.append((path, body))
+            await asyncio.sleep(.01)
+            return {'key': {'id': 'image-test'}, 'status': 'PENDING'}
+        with patch.object(wa, '_post', upstream):
+            path='/api/send-image?number=5511999998888&requestId=image-one'
+            a,b=await asyncio.gather(self.client.post(path,content=png),self.client.post(path,content=png))
+            self.assertEqual(a.json()['id'], 'image-test')
+            self.assertEqual(b.status_code,200)
+            self.assertEqual(len(calls),1)
+            self.assertEqual(calls[0][0],f'/message/sendMedia/{wa.INST}')
+            self.assertEqual(calls[0][1]['mediatype'],'image')
+            self.assertEqual(calls[0][1]['mimetype'],'image/png')
+            self.assertEqual(base64.b64decode(calls[0][1]['media']),png)
+            changed=await self.client.post(path.replace('5511999998888','5511888887777'),content=png)
+            self.assertEqual(changed.status_code,409)
+
+    async def test_image_send_validation_and_auth(self):
+        path='/api/send-image?number=5511999998888&requestId=image-bad'
+        self.assertEqual((await self.client.post(path,content=b'<svg/>')).status_code,415)
+        self.assertEqual((await self.client.post(path,content=b'x'*(10*1024*1024+1))).status_code,413)
+        self.client.cookies.clear()
+        self.assertEqual((await self.client.post(path,content=b'abc')).status_code,401)
+
     def test_shared_contact_vcard(self):
         card = {'vcard': 'BEGIN:VCARD\r\nFN:Hugo\\, Silva\r\nTEL;waid=5511999998888:+55 11 1111-2222\r\nTEL;TYPE=CELL:tel:+55 (11) 99999-8888\r\nTEL:+351 912\r\n 345678\r\nTEL:javascript:123456789\r\nEND:VCARD'}
         typ, text, extra = wa._body({'message': {'ephemeralMessage': {'message': {'contactMessage': card}}}})
@@ -58,7 +86,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         login = await self.client.post('/api/login', json={"senha": "test-password"})
         self.assertEqual(login.status_code, 200)
         self.assertIn('Secure', login.headers['set-cookie'])
-        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.5')
+        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.6')
         for asset in ('/', '/app.js', '/style.css'):
             self.assertEqual((await self.client.get(asset)).status_code, 200)
 

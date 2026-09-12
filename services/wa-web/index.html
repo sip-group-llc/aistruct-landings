@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/icon-192.png" type="image/png">
-<link rel="stylesheet" href="/style.css?v=20260912-5">
+<link rel="stylesheet" href="/style.css?v=20260912-6">
 </head>
 <body>
 <a class="skip" href="#q">Ir para busca de conversas</a>
@@ -49,18 +49,19 @@
      <div class="voice-actions"><button type="button" id="voice-discard" class="ghost">Descartar</button><button type="button" id="voice-pause">Pausar</button><button type="button" id="voice-stop">Parar e ouvir</button><button type="button" id="voice-send" class="primary" hidden>Enviar áudio</button></div>
      <p id="voice-note" class="muted"></p>
     </section>
-    <div id="text-row" class="compose-row"><button id="attach-audio" type="button" class="icon ghost" aria-label="Anexar áudio" title="Anexar áudio"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 17 16 6"/></svg></button><input id="audio-file" type="file" accept="audio/*,.m4a,.ogg,.opus,.webm" hidden><label class="sr-only" for="txt">Mensagem</label><textarea id="txt" name="message" rows="1" maxlength="20000" placeholder="Mensagem" enterkeyhint="enter"></textarea><button id="record" type="button" class="primary icon" aria-label="Gravar mensagem de voz" title="Gravar mensagem de voz"></button><button id="send" type="submit" class="primary" aria-label="Enviar mensagem" disabled><span data-icon="send" aria-hidden="true"></span><span class="send-label">Enviar</span></button></div><div class="compose-help"><span id="read-state" role="status">Rascunhos ficam nesta sessão do navegador.</span><span class="keyboard-help">Enter envia · Shift + Enter quebra linha</span></div>
+    <div id="text-row" class="compose-row"><button id="attach-audio" type="button" class="icon ghost" aria-label="Anexar áudio" title="Anexar áudio"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3M5 17 16 6"/></svg></button><input id="audio-file" type="file" accept="audio/*,.m4a,.ogg,.opus,.webm" hidden><label class="sr-only" for="txt">Mensagem</label><textarea id="txt" name="message" rows="1" maxlength="20000" placeholder="Mensagem" enterkeyhint="enter"></textarea><button id="record" type="button" class="primary icon" aria-label="Gravar mensagem de voz" title="Gravar mensagem de voz"></button><button id="send" type="submit" class="primary" aria-label="Enviar mensagem" disabled><span data-icon="send" aria-hidden="true"></span><span class="send-label">Enviar</span></button></div><div class="compose-help"><span id="read-state" role="status">Rascunhos ficam nesta sessão do navegador.</span><span class="keyboard-help">Ctrl + V anexa print · Enter envia</span></div>
    </form>
   </section>
  </main>
 </div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
+<dialog id="paste-dialog" aria-labelledby="paste-title"><header><h2 id="paste-title">Enviar print</h2><button type="button" id="paste-close" class="icon ghost" aria-label="Cancelar envio de imagem">×</button></header><p>Para <strong id="paste-recipient"></strong></p><img id="paste-preview" alt="Prévia do print antes de enviar"><p id="paste-error" role="alert" hidden></p><div class="detail-actions"><button type="button" id="paste-cancel">Cancelar</button><button type="button" id="paste-send" class="primary">Enviar imagem</button></div></dialog>
 <dialog id="details"><header><h2>Detalhes da conversa</h2><button class="icon ghost" data-close="details" data-icon="close" aria-label="Fechar detalhes"></button></header><p id="detail-name" class="detail-name"></p><p id="detail-number" class="muted"></p><div class="detail-actions"><button id="copy-number">Copiar número</button><button id="favorite">Adicionar às favoritas</button><button id="pending">Marcar como pendente</button></div><p class="muted" style="margin-top:16px">Favoritas e pendências são salvas neste navegador. Abrir a conversa não conclui uma pendência.</p></dialog>
 <dialog id="account-dialog"><header><h2>Seu WhatsApp</h2><button class="icon ghost" data-close="account-dialog" data-icon="close" aria-label="Fechar opções"></button></header><p class="muted">Converse e acompanhe suas mensagens por aqui.</p><div class="detail-actions"><button data-install>Instalar aplicativo no celular ou computador</button><button id="logout">Sair da conta</button></div><p class="muted" style="margin-top:16px">Ao sair, os rascunhos desta sessão são apagados.</p></dialog>
 <dialog id="install-dialog"><header><h2>Leve suas conversas com você</h2><button class="icon ghost" data-close="install-dialog" data-icon="close" aria-label="Fechar instalação"></button></header><p id="install-instructions"></p><p class="muted" style="margin-top:16px">O app abre em uma janela própria. É preciso estar conectado à internet para receber e enviar mensagens. Notificações com o app fechado ainda não estão disponíveis.</p></dialog>
 <dialog id="media-dialog"><header><h2>Imagem</h2><button id="zoom-image" class="ghost">Ampliar</button><a id="download-image" download="imagem" class="muted">Baixar</a><button class="icon ghost" data-close="media-dialog" data-icon="close" aria-label="Fechar imagem"></button></header><div id="media-stage"><img id="full-image" alt="Imagem da conversa"></div></dialog>
-<script src="/app.js?v=20260912-5" defer></script>
-<script src="/voice.js?v=20260912-5" defer></script>
-<script src="/pwa.js?v=20260912-5" defer></script>
+<script src="/app.js?v=20260912-6" defer></script>
+<script src="/voice.js?v=20260912-6" defer></script>
+<script src="/pwa.js?v=20260912-6" defer></script>
 </body>
 </html>

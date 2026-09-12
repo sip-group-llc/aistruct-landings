@@ -221,7 +221,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.12.5"}
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.12.6"}
 
 
 @app.get("/api/chats")
@@ -491,6 +491,40 @@ async def send_audio(req: Request, number: str, requestId: str):
     return await asyncio.shield(task)
 
 
+@app.post("/api/send-image")
+async def send_image(req: Request, number: str, requestId: str):
+    _need(req)
+    if not number or len(number) > 100 or not requestId or len(requestId) > 100:
+        raise HTTPException(400, "Destinatário ou identificação do envio inválidos.")
+    raw = bytearray()
+    async for chunk in req.stream():
+        if len(raw) + len(chunk) > 10 * 1024 * 1024:
+            raise HTTPException(413, "A imagem deve ter até 10 MB.")
+        raw.extend(chunk)
+    mime = "image/png" if raw.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg" if raw.startswith(b"\xff\xd8\xff") else ""
+    if not mime:
+        raise HTTPException(415, "Cole uma imagem PNG ou JPEG.")
+    fingerprint = {"kind": "image", "number": number, "sha256": sha256(raw).hexdigest()}
+    entry = _sends.get(requestId)
+    if entry:
+        if entry[0] != fingerprint:
+            raise HTTPException(409, "Este envio já foi usado para outra mensagem.")
+        task = entry[1]
+    else:
+        if len(_sends) >= 512:
+            finished = next((k for k, v in _sends.items() if v[1].done()), None)
+            if finished is None:
+                raise HTTPException(429, "Há muitos envios em andamento. Aguarde.")
+            _sends.pop(finished)
+        payload = {"number": number, "mediatype": "image", "mimetype": mime,
+                   "caption": "", "fileName": "print.png" if mime == "image/png" else "print.jpg",
+                   "media": base64.b64encode(raw).decode()}
+        task = asyncio.create_task(_post(f"/message/sendMedia/{INST}", payload))
+        _sends[requestId] = (fingerprint, task)
+    data = await asyncio.shield(task)
+    return {"id": (data.get("key") or {}).get("id"), "status": data.get("status")}
+
+
 @app.post("/api/read")
 async def read(req: Request):
     _need(req)
@@ -606,7 +640,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.12.5"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.12.6"}
 
 
 @app.get("/", response_class=HTMLResponse)

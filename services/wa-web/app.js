@@ -203,4 +203,54 @@ if(window.visualViewport){const fit=()=>{$('#app').style.height=visualViewport.h
 // Preserve reading position when media, transcription or the keyboard resize content.
 const timelineResize=new ResizeObserver(()=>{if(!current)return;if(current.atBottom)$('#msgs').scrollTop=$('#msgs').scrollHeight;else restoreAnchor(current.anchor);});
 timelineResize.observe($('#messages'));timelineResize.observe($('#msgs'));
+// The native paste event exposes only the image the user deliberately pasted.
+// Capture the recipient before any asynchronous work; never send on paste/Enter.
+(() => {
+ let pending=null;
+ const dialog=$('#paste-dialog');
+ function discard(){if(pending?.sending)return;dialog.close();}
+ dialog.addEventListener('cancel',e=>{if(pending?.sending)e.preventDefault();});
+ dialog.addEventListener('close',()=>{if(pending){URL.revokeObjectURL(pending.url);pending=null;}$('#paste-preview').removeAttribute('src');});
+ $('#paste-close').onclick=$('#paste-cancel').onclick=discard;
+ document.addEventListener('paste',e=>{
+  if(!session||!current||document.querySelector('dialog[open]'))return;
+  if(e.target instanceof Element&&e.target.closest('input,textarea,[contenteditable="true"]')&&e.target!==$('#txt'))return;
+  const images=Array.from(e.clipboardData?.items||[]).filter(item=>item.kind==='file'&&item.type.startsWith('image/'));
+  if(!images.length)return;
+  e.preventDefault();
+  if(current.sending){toast('Aguarde o envio atual antes de colar o print.');return;}
+  if(images.length>1){toast('Cole uma imagem de cada vez.');return;}
+  const file=images[0].getAsFile();
+  if(!file||!file.size||file.size>10*1024*1024){toast('Cole uma imagem de até 10 MB.');return;}
+  if(!['image/png','image/jpeg'].includes(file.type)){toast('Cole um print em PNG ou JPEG.');return;}
+  pending={file,state:current,url:URL.createObjectURL(file),requestId:crypto.randomUUID(),sending:false};
+  $('#paste-recipient').textContent=current.chat.name||current.chat.number;
+  $('#paste-error').hidden=true;$('#paste-send').disabled=true;$('#paste-send').textContent='Carregando imagem…';
+  $('#paste-close').disabled=$('#paste-cancel').disabled=false;
+  const preview=$('#paste-preview');
+  preview.onload=()=>{if(!pending)return;$('#paste-send').disabled=false;$('#paste-send').textContent='Enviar imagem';};
+  preview.onerror=()=>{if(!pending)return;$('#paste-error').textContent='Não foi possível abrir esta imagem. Copie o print novamente.';$('#paste-error').hidden=false;$('#paste-send').disabled=true;};
+  preview.src=pending.url;dialog.showModal();$('#paste-cancel').focus();
+ });
+ $('#paste-send').onclick=async()=>{
+  const d=pending,s=d?.state;
+  if(!d||d.sending||s.sending||!session)return;
+  d.sending=true;s.sending=true;$('#paste-send').disabled=true;$('#paste-close').disabled=$('#paste-cancel').disabled=true;$('#paste-send').textContent='Enviando…';$('#paste-error').hidden=true;
+  try{
+   const result=await api('/api/send-image?'+new URLSearchParams({number:s.chat.number||s.chat.jid,requestId:d.requestId}),{method:'POST',headers:{'Content-Type':d.file.type},body:d.file,timeout:180000});
+   if(!result.id)throw new Error('Envio não confirmado. Verifique a conversa antes de tentar novamente.');
+   const previewUrl=URL.createObjectURL(d.file);
+   s.messages.set(result.id,{id:result.id,type:'image',text:'',fromMe:true,ts:Math.floor(Date.now()/1000),localUrl:previewUrl,status:result.status});
+   d.sending=false;dialog.close();toast('Imagem enviada.');loadList();
+  }catch(error){
+   $('#paste-error').textContent=error.message;$('#paste-error').hidden=false;
+   // No automatic retry after a possibly completed delivery.
+   $('#paste-send').textContent='Verifique a conversa';
+  }finally{
+   d.sending=false;s.sending=false;$('#paste-close').disabled=$('#paste-cancel').disabled=false;
+   if(current===s){renderMessages(s);resizeComposer();if(!dialog.open)$('#msgs').scrollTop=$('#msgs').scrollHeight;}
+   if(session)loadChat(s);
+  }
+ };
+})();
 api('/api/session').then(start).catch(e=>showLogin(e.status===401?'':e.message));
