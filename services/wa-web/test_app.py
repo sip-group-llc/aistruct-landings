@@ -88,6 +88,18 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(b'OpusHead',wa._media['encoded-audio'][1])
         with self.assertRaises(wa.HTTPException):await wa._voice_ogg(b'invalid audio')
 
+    @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg required for the duration boundary test')
+    async def test_voice_duration_boundary(self):
+        for seconds in (600.25, 602):
+            wav=io.BytesIO()
+            with wave.open(wav,'wb') as f:
+                f.setnchannels(1);f.setsampwidth(2);f.setframerate(8000);f.writeframes(b'\0\0'*int(8000*seconds))
+            if seconds<601:
+                self.assertIn(b'OpusHead',await wa._voice_ogg(wav.getvalue()))
+            else:
+                with self.assertRaises(wa.HTTPException) as error:await wa._voice_ogg(wav.getvalue())
+                self.assertEqual(error.exception.status_code,400)
+
     async def test_complete_chronological_merge_and_retry(self):
         # 130 received messages interleaved with 110 sent messages in another JID.
         data = {'a@lid': [record('a@lid', i, 1000-i*2) for i in range(130)],

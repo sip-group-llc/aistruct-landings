@@ -390,7 +390,10 @@ async def _voice_ogg(raw: bytes) -> bytes:
             # Ogg Opus last-page granule is the decoded sample count (48 kHz).
             last_page = encoded.rfind(b"OggS")
             samples = int.from_bytes(encoded[last_page + 6:last_page + 14], "little")
-            if samples > 600 * 48000 + 480:
+            # Allow recorder scheduling/encoder padding at the ten-minute boundary.
+            # The 601 s conversion cap remains above this threshold, so longer
+            # inputs are rejected rather than silently truncated and sent.
+            if samples > 600 * 48000 + 24000:
                 raise HTTPException(400, "O áudio deve ter no máximo 10 minutos.")
             return encoded
 
