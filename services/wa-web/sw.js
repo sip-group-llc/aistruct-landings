@@ -1,5 +1,5 @@
 // Public shell only. API responses, media and credentials never enter CacheStorage.
-const CACHE='wa-public-v12',VERSION='20260913-14';
+const CACHE='wa-public-v13',VERSION='20260913-15';
 const SHELL=['/','/offline.html','/manifest.webmanifest','/icon-192.png','/icon-512.png','/apple-touch-icon.png',
  ...['style.css','cache.js','app.js','voice.js','pwa.js'].map(name=>'/'+name+'?v='+VERSION)];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
@@ -28,3 +28,21 @@ self.addEventListener('fetch',event=>{
   return saved||fetch(request);
  })());
 });
+
+self.addEventListener('push',event=>event.waitUntil((async()=>{
+ let data={};try{data=event.data?.json()||{};}catch{}
+ const url=new URL(data.url||'/',self.location.origin);
+ await self.registration.showNotification('WhatsApp',{
+  body:'Você recebeu novas mensagens.',icon:'/icon-192.png',badge:'/icon-192.png',tag:'wa-messages',
+  data:{url:url.origin===self.location.origin?url.pathname+url.search:'/'},
+ });
+})()));
+self.addEventListener('notificationclick',event=>event.waitUntil((async()=>{
+ event.notification.close();
+ const url=new URL(event.notification.data?.url||'/',self.location.origin);
+ if(url.origin!==self.location.origin)return;
+ const clients=await self.clients.matchAll({type:'window',includeUncontrolled:true});
+ const client=clients.find(c=>new URL(c.url).origin===self.location.origin);
+ if(client){await client.focus();client.postMessage({type:'wa-open-chat',jid:url.searchParams.get('chat')||''});}
+ else await self.clients.openWindow(url.href);
+})()));

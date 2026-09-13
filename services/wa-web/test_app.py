@@ -27,6 +27,33 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_push_routes_auth_storage_and_read_receipts(self):
+        from test_push import subscription
+        with tempfile.TemporaryDirectory() as root, patch.object(wa, '_push', wa.PushStore(root, 'test')), patch.object(wa._disk, 'root', Path(root)):
+            self.client.cookies.clear()
+            self.assertEqual((await self.client.get('/api/push')).status_code,401)
+            self.assertEqual((await self.client.post('/api/push/subscribe',json=subscription())).status_code,401)
+            self.client.cookies.set(wa.COOKIE,wa._token)
+            config=await self.client.get('/api/push');self.assertTrue(config.json()['available']);self.assertEqual(len(config.json()['publicKey']),87)
+            sub=subscription();self.assertEqual((await self.client.post('/api/push/subscribe',json=sub)).status_code,200)
+            bad={**sub,'endpoint':'https://127.0.0.1/private'};self.assertEqual((await self.client.post('/api/push/subscribe',json=bad)).status_code,400)
+            with patch.object(wa,'_post',return_value={'ok':True}):
+                self.assertEqual((await self.client.post('/api/read',json={'keys':[{'jid':'a','id':'1'}]})).status_code,200)
+            self.assertTrue((await self.client.get('/api/read-state')).json()['a|1'])
+            self.assertEqual((await self.client.post('/api/push/unsubscribe',json={'endpoint':sub['endpoint']})).status_code,200)
+            self.assertEqual(wa._push.subscriptions(),[])
+
+    async def test_push_cycle_reads_recent_pages_without_sending_whatsapp(self):
+        from test_push import subscription
+        from unittest.mock import AsyncMock, MagicMock
+        with tempfile.TemporaryDirectory() as root:
+            store=wa.PushStore(root,'test');store.subscribe(subscription())
+            rec=record('a',1,int(__import__('time').time()))
+            read=AsyncMock(return_value={'messages':{'records':[rec],'pages':1}})
+            with patch.object(wa,'_push',store),patch.object(wa,'_workspace',wa.Workspace(root)),patch.object(wa,'_post',read),patch.object(store,'deliver',return_value=0) as deliver:
+                await wa.push_cycle()
+                self.assertEqual(read.call_count,1);self.assertIn('/chat/findMessages/',read.call_args.args[0]);deliver.assert_called_once()
+
     def test_commercial_template_content_and_missing_payload(self):
         rec = record('synthetic@lid', 1, 1)
         rec['message'] = {'templateMessage': {'hydratedTemplate': {

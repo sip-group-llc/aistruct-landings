@@ -19,6 +19,8 @@ import re
 import secrets
 import time
 import tempfile
+from contextlib import asynccontextmanager, suppress
+from push_service import PushStore
 from urllib.parse import urlsplit
 from copy import deepcopy
 from collections import OrderedDict
@@ -61,7 +63,55 @@ def _can_persist(jid, mid):
     return _media_policy.get((jid, mid)) is True
 HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
-app = FastAPI(title="wa-web")
+_push = PushStore(_disk.root, SECRET)
+_push_health = {"lastCheck": None, "lastError": None}
+
+
+async def push_cycle():
+    subscriptions = await asyncio.to_thread(_push.subscriptions)
+    if not subscriptions:
+        return
+    cutoff = min(since for _, _, since in subscriptions)
+    checked_at = time.time()
+    records = []
+    for page in range(1, 21):
+        data = await _post(f"/chat/findMessages/{INST}", {"where": {}, "limit": 50, "page": page})
+        result = data.get('messages') or {}
+        batch = result.get('records') or []
+        records.extend(batch)
+        if not batch or page >= int(result.get('pages') or 1) or min(float(r.get('messageTimestamp') or 0) for r in batch) < cutoff:
+            break
+    else:
+        # Do not advance checkpoints across a truncated backlog.
+        raise RuntimeError('push backlog exceeds one cycle')
+    aliases = await asyncio.to_thread(_workspace.chat_aliases)
+    await asyncio.to_thread(_push.deliver, records, checked_at, aliases)
+
+
+async def push_loop():
+    while True:
+        try:
+            if _disk.root:
+                await push_cycle()
+                _push_health.update(lastCheck=int(time.time()), lastError=_push.last_error)
+        except Exception:
+            _push_health['lastError'] = 'Não foi possível verificar novas mensagens; nova tentativa automática.'
+        await asyncio.sleep(15)
+
+
+@asynccontextmanager
+async def lifespan(application):
+    worker = asyncio.create_task(push_loop())
+    try:
+        yield
+    finally:
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+        await evo.aclose()
+
+
+app = FastAPI(title="wa-web", lifespan=lifespan)
 evo = httpx.AsyncClient(base_url=EVO, headers={"apikey": KEY}, timeout=120)
 
 
@@ -281,7 +331,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.14",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.15",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -700,7 +750,44 @@ async def read(req: Request):
     if not items:
         return {"ok": True}
     await _post(f"/chat/markMessageAsRead/{INST}", {"readMessages": items})
+    if _disk.root:
+        await asyncio.to_thread(_push.mark_read, items)
     return {"ok": True}
+
+
+@app.get('/api/read-state')
+async def read_state(req: Request):
+    _need(req)
+    return await asyncio.to_thread(_push.receipts) if _disk.root else {}
+
+
+@app.get('/api/push')
+async def push_config(req: Request):
+    _need(req)
+    if not _disk.root:
+        return {'available': False}
+    return {'available': True, 'publicKey': await asyncio.to_thread(_push.public_key), **_push_health}
+
+
+@app.post('/api/push/subscribe')
+async def push_subscribe(req: Request):
+    _need(req)
+    try:
+        await asyncio.to_thread(_push.subscribe, await req.json())
+    except (ValueError, TypeError):
+        raise HTTPException(400, 'Inscrição de notificações inválida.') from None
+    except OSError:
+        raise HTTPException(503, 'Notificações indisponíveis.') from None
+    return {'ok': True}
+
+
+@app.post('/api/push/unsubscribe')
+async def push_unsubscribe(req: Request):
+    _need(req)
+    body = await req.json()
+    if _disk.root:
+        await asyncio.to_thread(_push.remove, str(body.get('endpoint') or ''))
+    return {'ok': True}
 
 
 _trans: OrderedDict[str, str] = OrderedDict()
@@ -893,7 +980,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.14"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.15"}
 
 
 @app.get("/", response_class=HTMLResponse)

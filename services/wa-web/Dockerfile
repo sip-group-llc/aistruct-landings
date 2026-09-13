@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" httpx
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" httpx pywebpush==2.5.0
 WORKDIR /app
-COPY app.py storage.py workspace.py index.html app.js cache.js style.css ./
+COPY app.py storage.py workspace.py push_service.py index.html app.js cache.js style.css ./
 COPY voice.js pwa.js sw.js manifest.webmanifest offline.html icon-192.png icon-512.png apple-touch-icon.png ./
 EXPOSE 80
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "80", "--proxy-headers", "--forwarded-allow-ips", "*"]
