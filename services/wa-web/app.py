@@ -25,6 +25,8 @@ from hashlib import sha256
 from pathlib import Path
 
 import httpx
+import sqlite3
+from workspace import Workspace, Conflict
 from storage import PersistentCache
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -42,6 +44,7 @@ GROQ_LANGUAGE = os.environ.get("GROQ_TRANSCRIPTION_LANGUAGE", "").strip()
 COOKIE = "wa_session"
 _disk = PersistentCache(os.environ.get("WA_CACHE_DIR"), EVO + "|" + INST)
 _media_policy = OrderedDict()
+_workspace = Workspace(_disk.root)
 
 
 def _persistent_identity(jid, mid):
@@ -245,7 +248,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.8",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.9",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -738,9 +741,57 @@ async def transcribe(req: Request):
     return await asyncio.shield(task)
 
 
+def _work_key(key: str):
+    if not re.fullmatch(r"[A-Za-z0-9@._:+-]{1,150}", key):
+        raise HTTPException(400, "Conversa inválida.")
+    return key
+
+
+@app.get("/api/work-summary")
+async def work_summary(req: Request):
+    _need(req)
+    try:
+        return await asyncio.to_thread(_workspace.summary)
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, "Não foi possível acessar as anotações. Tente novamente.")
+
+
+@app.get("/api/work")
+async def work_get(req: Request, key: str):
+    _need(req)
+    _work_key(key)
+    try:
+        return await asyncio.to_thread(_workspace.get, key)
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, "Não foi possível acessar as anotações. Tente novamente.")
+
+
+@app.post("/api/work")
+async def work_save(req: Request):
+    _need(req)
+    body = await req.json()
+    key = _work_key(str(body.get("key") or ""))
+    notes, labels, revision = body.get("notes"), body.get("labels"), body.get("revision")
+    if not isinstance(notes, str) or len(notes) > 20000 or not isinstance(labels, list) or len(labels) > 12 or type(revision) is not int or revision < 0:
+        raise HTTPException(400, "Use até 20.000 caracteres e 12 etiquetas.")
+    clean = []
+    for label in labels:
+        if not isinstance(label, str) or not 1 <= len(label.strip()) <= 32:
+            raise HTTPException(400, "Cada etiqueta deve ter entre 1 e 32 caracteres.")
+        label = label.strip()
+        if label.casefold() not in {x.casefold() for x in clean}:
+            clean.append(label)
+    try:
+        return await asyncio.to_thread(_workspace.save, key, notes, clean, revision)
+    except Conflict:
+        raise HTTPException(409, "Esta anotação mudou em outro aparelho. Reabra a versão atual antes de salvar.")
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, "Não foi possível salvar. Seu texto permanece no editor.")
+
+
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.8"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.9"}
 
 
 @app.get("/", response_class=HTMLResponse)

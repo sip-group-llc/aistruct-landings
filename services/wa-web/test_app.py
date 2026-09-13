@@ -27,6 +27,25 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_private_notes_persist_and_conflicting_edits_do_not_overwrite(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(wa,'_workspace',wa.Workspace(root)):
+            payload={'key':'5511','notes':'Nota privada','labels':['Cliente','cliente','Retornar'],'revision':0}
+            first=await self.client.post('/api/work',json=payload)
+            self.assertEqual(first.status_code,200,first.text)
+            self.assertEqual(first.json()['labels'],['Cliente','Retornar'])
+            second=await self.client.post('/api/work',json={**payload,'notes':'stale overwrite'})
+            self.assertEqual(second.status_code,409)
+            with patch.object(wa,'_workspace',wa.Workspace(root)):
+                saved=(await self.client.get('/api/work?key=5511')).json()
+                self.assertEqual(saved['notes'],'Nota privada');self.assertEqual(saved['revision'],1)
+            summary=(await self.client.get('/api/work-summary')).json()
+            self.assertTrue(summary['5511']['hasNotes']);self.assertNotIn('notes',summary['5511'])
+            invalid=await self.client.post('/api/work',json={**payload,'labels':['x'*33]})
+            self.assertEqual(invalid.status_code,400)
+            self.client.cookies.clear()
+            self.assertEqual((await self.client.get('/api/work?key=5511')).status_code,401)
+            self.assertEqual((await self.client.post('/api/work',json=payload)).status_code,401)
+
     async def test_audio_and_image_replies_share_original_and_deduplicate_concurrently(self):
         jid='media-reply@lid';original=record(jid,1,10);calls=[]
         async def fake(path,body):
