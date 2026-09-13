@@ -26,7 +26,7 @@ window.waCache=(()=>{
   const owner=scope,epoch=generation;if(!owner)return false;
   try{const db=await database();if(epoch!==generation)return false;
    return await new Promise(resolve=>{const tx=db.transaction('entries','readwrite'),store=tx.objectStore('entries');store.put({id:owner+'|'+key,owner,savedAt:Date.now(),value});
-    const count=store.getAllKeys();count.onsuccess=()=>{let excess=count.result.filter(id=>!id.includes('|draft:')).length-60;if(excess<=0)return;const cursor=store.index('savedAt').openCursor();cursor.onsuccess=()=>{const c=cursor.result;if(c&&excess>0){if(!c.value.id.endsWith('|startup')&&!c.value.id.includes('|draft:')){c.delete();excess--;}c.continue();}};};
+    const count=store.getAllKeys();count.onsuccess=()=>{let excess=count.result.filter(id=>!id.includes('|draft:')&&!id.endsWith('|read-state')).length-60;if(excess<=0)return;const cursor=store.index('savedAt').openCursor();cursor.onsuccess=()=>{const c=cursor.result;if(c&&excess>0){if(!c.value.id.endsWith('|startup')&&!c.value.id.endsWith('|read-state')&&!c.value.id.includes('|draft:')){c.delete();excess--;}c.continue();}};};
     tx.oncomplete=()=>resolve(true);tx.onerror=tx.onabort=()=>resolve(false);});
   }catch{return false;}
  }

@@ -281,7 +281,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.12",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.13",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -315,15 +315,44 @@ async def chats(req: Request):
     _need(req)
     data = await _post(f"/chat/findChats/{INST}")
     recs = data.get("records") if isinstance(data, dict) else data
+    recs = recs or []
+    try:
+        aliases = await asyncio.to_thread(_workspace.chat_aliases)
+    except (OSError, sqlite3.Error):
+        aliases = {}
+    learned = set()
+    by_last = {}
+    for c in recs:
+        jid = str(c.get("remoteJid") or "")
+        key = (c.get("lastMessage") or {}).get("key") or {}
+        alt = str(key.get("remoteJidAlt") or "")
+        if jid.endswith("@lid") and alt.endswith("@s.whatsapp.net"):
+            learned.add((jid, alt.split("@")[0]))
+        elif alt.endswith("@lid") and jid.endswith("@s.whatsapp.net"):
+            learned.add((alt, jid.split("@")[0]))
+        mid = str(key.get("id") or "")
+        if mid:
+            by_last.setdefault(mid, []).append((jid, key))
+    for matches in by_last.values():
+        lids = [(jid, key) for jid, key in matches if jid.endswith("@lid")]
+        phones = [(jid, key) for jid, key in matches if jid.endswith("@s.whatsapp.net")]
+        if len(lids) == len(phones) == 1 and bool(lids[0][1].get("fromMe")) == bool(phones[0][1].get("fromMe")):
+            learned.add((lids[0][0], phones[0][0].split("@")[0]))
+    if learned:
+        try:
+            await asyncio.to_thread(_workspace.learn_chat_aliases, learned)
+        except (OSError, sqlite3.Error):
+            pass
+        aliases.update(learned)
     # A Evolution separa o mesmo contato em 2 chats: o que ELE manda cai no `@lid`,
     # o que EU mando cai no `<numero>@s.whatsapp.net`. Funde por número.
     merged: dict[str, dict] = {}
-    for c in recs or []:
+    for c in recs:
         lm = c.get("lastMessage") or {}
         k = lm.get("key") or {}
         typ, txt, extra = _body(lm) if lm else ("text", "", {})
         jid = c.get("remoteJid") or ""
-        number = _number(jid, k.get("remoteJidAlt") or "")
+        number = aliases.get(jid) or _number(jid, k.get("remoteJidAlt") or "")
         item = {
             "jid": jid, "jids": [jid],
             "name": c.get("pushName") or ("" if (jid.endswith("@g.us") or k.get("fromMe")) else lm.get("pushName") or ""),
@@ -347,8 +376,15 @@ async def chats(req: Request):
             continue
         newer, older = (item, prev) if item["ts"] > prev["ts"] else (prev, item)
         newer["jids"] = sorted(set(prev["jids"] + item["jids"]))
-        newer["unread"] = prev["unread"] + item["unread"]
-        newer["unreadSources"] = prev["unreadSources"] + item["unreadSources"]
+        sources = prev["unreadSources"] + item["unreadSources"]
+        unique = {}
+        for source in sources:
+            identity = source["lastId"] or "jid:" + source["jid"]
+            current_source = unique.get(identity)
+            if not current_source or source["count"] > current_source["count"] or (source["count"] == current_source["count"] and source["jid"].endswith("@lid")):
+                unique[identity] = source
+        newer["unreadSources"] = list(unique.values())
+        newer["unread"] = sum(source["count"] for source in newer["unreadSources"])
         newer["name"] = newer["name"] or older["name"]
         newer["pic"] = newer["pic"] or older["pic"]
         if newer["jid"].endswith("@s.whatsapp.net") and older["jid"].endswith("@lid"):
@@ -857,7 +893,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.12"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.13"}
 
 
 @app.get("/", response_class=HTMLResponse)

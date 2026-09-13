@@ -21,6 +21,7 @@ class Workspace:
         try:
             db.execute('CREATE TABLE IF NOT EXISTS contacts (key TEXT PRIMARY KEY, notes TEXT NOT NULL, labels TEXT NOT NULL, revision INTEGER NOT NULL, updated REAL NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS flags (key TEXT PRIMARY KEY, favorite INTEGER NOT NULL, pending INTEGER NOT NULL, revision INTEGER NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS chat_aliases (alias TEXT PRIMARY KEY, canonical TEXT NOT NULL, updated REAL NOT NULL)')
             with db:
                 yield db
         finally:
@@ -55,6 +56,16 @@ class Workspace:
             flags[field] = value
             db.execute('INSERT OR REPLACE INTO flags VALUES (?,?,?,?)', (key, int(flags['favorite']), int(flags['pending']), flags['revision']))
         return flags
+
+    def chat_aliases(self):
+        with self.db() as db:
+            return dict(db.execute('SELECT alias,canonical FROM chat_aliases'))
+
+    def learn_chat_aliases(self, pairs):
+        updated = time.time()
+        with self.db() as db:
+            for alias, canonical in pairs:
+                db.execute('INSERT OR REPLACE INTO chat_aliases VALUES (?,?,?)', (alias, canonical, updated))
 
     def save(self, key, notes, labels, revision):
         with self.db() as db:

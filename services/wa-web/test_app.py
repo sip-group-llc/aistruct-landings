@@ -176,6 +176,31 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({s['jid']:s['count'] for s in data[0]['unreadSources']},{'123@lid':3,'5511999998888@s.whatsapp.net':2})
         self.assertEqual({s['lastId'] for s in data[0]['unreadSources']},{a['key']['id'],b['key']['id']})
 
+    async def test_shared_frontier_links_aliases_without_alt_and_does_not_double_unread(self):
+        lid = record('123@lid', 1, 20, True)
+        phone = record('5511999998888@s.whatsapp.net', 1, 20, True)
+        lid['key']['id'] = phone['key']['id'] = 'same-message'
+        current = [
+            {'remoteJid': '123@lid', 'unreadCount': 2, 'lastMessage': lid},
+            {'remoteJid': '5511999998888@s.whatsapp.net', 'unreadCount': 2, 'lastMessage': phone},
+        ]
+        async def upstream(path, body=None):
+            return current
+        with tempfile.TemporaryDirectory() as root, patch.object(wa, '_workspace', wa.Workspace(root)), patch.object(wa, '_post', upstream):
+            first = (await self.client.get('/api/chats')).json()
+            self.assertEqual(len(first), 1)
+            self.assertEqual(first[0]['number'], '5511999998888')
+            self.assertEqual(first[0]['unread'], 2)
+            lid2, phone2 = record('123@lid', 2, 30), record('5511999998888@s.whatsapp.net', 3, 40, True)
+            current[:] = [
+                {'remoteJid': '123@lid', 'unreadCount': 1, 'lastMessage': lid2},
+                {'remoteJid': '5511999998888@s.whatsapp.net', 'unreadCount': 0, 'lastMessage': phone2},
+            ]
+            wa._workspace = wa.Workspace(root)
+            second = (await self.client.get('/api/chats')).json()
+            self.assertEqual(len(second), 1)
+            self.assertEqual(second[0]['unread'], 1)
+
     async def test_profile_fields_and_business_partial(self):
         async def upstream(path, body):
             self.assertEqual(body['number'],'5511999998888')
