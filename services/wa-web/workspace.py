@@ -20,6 +20,7 @@ class Workspace:
         db = sqlite3.connect(self.root / 'workspace.sqlite', timeout=10)
         try:
             db.execute('CREATE TABLE IF NOT EXISTS contacts (key TEXT PRIMARY KEY, notes TEXT NOT NULL, labels TEXT NOT NULL, revision INTEGER NOT NULL, updated REAL NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS flags (key TEXT PRIMARY KEY, favorite INTEGER NOT NULL, pending INTEGER NOT NULL, revision INTEGER NOT NULL)')
             with db:
                 yield db
         finally:
@@ -32,7 +33,28 @@ class Workspace:
 
     def summary(self):
         with self.db() as db:
-            return {key: {'labels': json.loads(labels), 'hasNotes': bool(notes), 'revision': revision} for key, notes, labels, revision in db.execute('SELECT key,notes,labels,revision FROM contacts')}
+            result = {key: {'labels': json.loads(labels), 'hasNotes': bool(notes), 'revision': revision} for key, notes, labels, revision in db.execute('SELECT key,notes,labels,revision FROM contacts')}
+            for key, favorite, pending, revision in db.execute('SELECT key,favorite,pending,revision FROM flags'):
+                result.setdefault(key, {'labels': [], 'hasNotes': False, 'revision': 0})['flags'] = {'favorite': bool(favorite), 'pending': bool(pending), 'revision': revision}
+            return result
+
+    def import_flags(self, items):
+        with self.db() as db:
+            for key, flags in items.items():
+                db.execute('INSERT OR IGNORE INTO flags VALUES (?,?,?,1)', (key, int(flags.get('favorite', False)), int(flags.get('pending', False))))
+
+    def set_flag(self, key, field, value, revision):
+        if field not in ('favorite', 'pending'):
+            raise ValueError('Invalid field')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT favorite,pending,revision FROM flags WHERE key=?', (key,)).fetchone() or (0, 0, 0)
+            if row[2] != revision:
+                raise Conflict()
+            flags = {'favorite': bool(row[0]), 'pending': bool(row[1]), 'revision': row[2] + 1}
+            flags[field] = value
+            db.execute('INSERT OR REPLACE INTO flags VALUES (?,?,?,?)', (key, int(flags['favorite']), int(flags['pending']), flags['revision']))
+        return flags
 
     def save(self, key, notes, labels, revision):
         with self.db() as db:

@@ -27,6 +27,21 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_flags_import_preserves_remote_state_and_updates_conflict(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(wa,'_workspace',wa.Workspace(root)):
+            imported=await self.client.post('/api/work-import-flags',json={'5511':{'favorite':True,'pending':True}})
+            self.assertEqual(imported.status_code,200)
+            result=await self.client.post('/api/work-flags',json={'key':'5511','field':'pending','value':False,'revision':1})
+            self.assertEqual(result.status_code,200);self.assertTrue(result.json()['favorite']);self.assertFalse(result.json()['pending'])
+            stale=await self.client.post('/api/work-flags',json={'key':'5511','field':'pending','value':True,'revision':1})
+            self.assertEqual(stale.status_code,409)
+            await self.client.post('/api/work-import-flags',json={'5511':{'favorite':False,'pending':True}})
+            wa._workspace=wa.Workspace(root)
+            current=(await self.client.get('/api/work-summary')).json()['5511']['flags']
+            self.assertEqual(current,{'favorite':True,'pending':False,'revision':2})
+            self.client.cookies.clear()
+            self.assertEqual((await self.client.post('/api/work-import-flags',json={})).status_code,401)
+
     async def test_private_notes_persist_and_conflicting_edits_do_not_overwrite(self):
         with tempfile.TemporaryDirectory() as root, patch.object(wa,'_workspace',wa.Workspace(root)):
             payload={'key':'5511','notes':'Nota privada','labels':['Cliente','cliente','Retornar'],'revision':0}

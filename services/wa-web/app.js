@@ -328,7 +328,7 @@ $('#more').onclick=()=>loadChat(current,true);$('#jump').onclick=()=>{$('#msgs')
 let draftFrame;$('#txt').addEventListener('input',()=>{if(current){drafts[current.key]=$('#txt').value;persistDrafts();resizeComposer();cancelAnimationFrame(draftFrame);draftFrame=requestAnimationFrame(renderList);}});
 $('#txt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&matchMedia('(min-width:960px)').matches){e.preventDefault();sendMessage();}});$('#compose').addEventListener('submit',e=>{e.preventDefault();sendMessage();});
 $('#toggle-message-search').onclick=()=>{$('#message-search').hidden=!$('#message-search').hidden;if(!$('#message-search').hidden)$('#mq').focus();};$('#close-message-search').onclick=()=>{$('#message-search').hidden=true;$('#mq').value='';searchMessages(false);$('#toggle-message-search').focus();};$('#mq').addEventListener('input',()=>searchMessages());$('#next-match').onclick=()=>nextMatch(1);$('#prev-match').onclick=()=>nextMatch(-1);
-$('#contact-details').onclick=showDetails;$('#copy-number').onclick=()=>current&&copy(current.chat.number||'');for(const [id,key]of[['favorite','favorite'],['pending','pending']])$('#'+id).onclick=()=>{if(!current)return;const p=preferences[current.key]||{};p[key]=!p[key];preferences[current.key]=p;persistPreferences();$('#details').close();renderList();toast(key==='pending'?(p.pending?'Conversa marcada como pendente.':'Pendência concluída.'):(p.favorite?'Adicionada às favoritas.':'Removida das favoritas.'));};
+$('#contact-details').onclick=showDetails;$('#copy-number').onclick=()=>current&&copy(current.chat.number||'');for(const [id,key]of[['favorite','favorite'],['pending','pending']])$('#'+id).onclick=()=>{if(current)window.workUX?.toggleFlag(current.key,key);};
 $('#account').onclick=()=>$('#account-dialog').showModal();document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$('#'+b.dataset.close).close());$('#zoom-image').onclick=()=>{const zoomed=$('#full-image').classList.toggle('zoomed');$('#zoom-image').textContent=zoomed?'Ajustar à tela':'Ampliar';};
 $('#offline-access').onchange=e=>{if(localOnly&&e.target.checked){e.target.checked=false;toast('Conecte-se para ativar o acesso offline.');return;}if(!window.waOffline.enable(e.target.checked)){e.target.checked=false;toast('Não foi possível salvar esta opção no aparelho.');}if(localOnly&&!e.target.checked)showLogin('Acesso offline desativado. Conecte-se para entrar.');};
 $('#account').addEventListener('click',()=>{$('#offline-access').checked=Boolean(window.waOffline.get());});
@@ -434,12 +434,26 @@ async function boot(){
 boot();
 
 window.workUX=(()=>{
- let summary={},editor=null,busy=false,generation=0;
+ let summary={},editor=null,busy=false,generation=0;const changing=new Set();
  const dialog=$('#work-dialog'),notes=$('#work-notes'),labels=$('#work-labels'),status=$('#work-status'),save=$('#work-save');
  function snapshot(){return editor?{key:editor.key,revision:editor.revision,notes:notes.value,labels:labels.value}:null;}
  function keepDraft(){const draft=snapshot();if(draft)window.waCache?.put('draft:work:'+draft.key,draft);}
  notes.oninput=labels.oninput=()=>{keepDraft();status.textContent='Rascunho neste aparelho · ainda não salvo na conta';};
- async function refresh(){if(!session||localOnly||busy)return;busy=true;const epoch=authEpoch;try{const data=await api('/api/work-summary');if(epoch===authEpoch){summary=data;renderList();}}catch{}finally{busy=false;}}
+ function applyFlags(){for(const [key,item]of Object.entries(summary)){if(item.flags)preferences[key]={...preferences[key],favorite:item.flags.favorite,pending:item.flags.pending};}persistPreferences();renderList();if(current){const p=preferences[current.key]||{};$('#favorite').textContent=p.favorite?'Remover das favoritas':'Adicionar às favoritas';$('#pending').textContent=p.pending?'Concluir pendência':'Marcar como pendente';}}
+ async function refresh(){if(!session||localOnly||busy)return;busy=true;const epoch=authEpoch;try{
+  let data=await api('/api/work-summary');if(epoch!==authEpoch)return;
+  const missing=Object.entries(preferences).filter(([key,value])=>!data[key]?.flags&&value&&(typeof value.favorite==='boolean'||typeof value.pending==='boolean'));
+  for(let i=0;i<missing.length;i+=1000){const batch=Object.fromEntries(missing.slice(i,i+1000).map(([key,value])=>[key,{favorite:Boolean(value.favorite),pending:Boolean(value.pending)}]));await post('/api/work-import-flags',batch);if(epoch!==authEpoch)return;}
+  if(missing.length)data=await api('/api/work-summary');if(epoch===authEpoch){for(const [key,old]of Object.entries(summary)){if(old.flags&&old.flags.revision>(data[key]?.flags?.revision||0))data[key]={...data[key],flags:old.flags};}summary=data;applyFlags();}
+ }catch{}finally{busy=false;}}
+ async function toggleFlag(key,field){
+  if(changing.has(key))return;if(localOnly){toast('Conecte-se para salvar esta marcação na conta.');return;}
+  changing.add(key);const epoch=authEpoch,button=$('#'+field),value=!Boolean(preferences[key]?.[field]);button.disabled=true;
+  try{if(!summary[key]?.flags&&preferences[key]){await post('/api/work-import-flags',{[key]:{favorite:Boolean(preferences[key].favorite),pending:Boolean(preferences[key].pending)}});const data=await api('/api/work-summary');if(epoch!==authEpoch)return;summary[key]=data[key];}const flags=summary[key]?.flags||{revision:0};const result=await post('/api/work-flags',{key,field,value,revision:flags.revision});if(epoch!==authEpoch)return;
+   summary[key]={...summary[key],flags:result};applyFlags();if(current?.key===key)$('#details').close();toast(field==='favorite'?(result.favorite?'Favorita salva na conta.':'Removida das favoritas.'):(result.pending?'Pendência salva na conta.':'Pendência concluída.'));
+  }catch(e){if(epoch===authEpoch){toast(e.message);await refresh();}}
+  finally{changing.delete(key);button.disabled=false;}
+ }
  async function open(key,name,restore=true){
   const gen=++generation,epoch=authEpoch;editor={key,revision:0};notes.value='';labels.value='';save.disabled=true;notes.disabled=labels.disabled=true;status.textContent='Carregando notas…';$('#work-title').textContent='Notas · '+name;dialog.showModal();
   try{const record=await api('/api/work?'+new URLSearchParams({key}));const draft=restore?await window.waCache?.get('draft:work:'+key):null;if(gen!==generation||epoch!==authEpoch)return;
@@ -452,7 +466,7 @@ window.workUX=(()=>{
  save.onclick=async()=>{
   if(!editor||save.disabled)return;const draft=snapshot(),gen=generation,epoch=authEpoch;save.disabled=true;status.textContent='Salvando…';
   try{const record=await post('/api/work',{...draft,labels:draft.labels.split(',').map(s=>s.trim()).filter(Boolean)});if(epoch!==authEpoch)return;
-   summary[draft.key]={labels:record.labels,hasNotes:Boolean(record.notes),revision:record.revision};renderList();
+   summary[draft.key]={...summary[draft.key],labels:record.labels,hasNotes:Boolean(record.notes),revision:record.revision};renderList();
    const persisted=await window.waCache?.get('draft:work:'+draft.key);if(epoch!==authEpoch)return;
    if(persisted?.revision===draft.revision)await window.waCache?.put('draft:work:'+draft.key,persisted.notes===draft.notes&&persisted.labels===draft.labels?null:{...persisted,revision:record.revision});
    if(gen!==generation)return;
@@ -463,5 +477,5 @@ window.workUX=(()=>{
  };
  dialog.addEventListener('close',()=>{generation++;editor=null;});
  setInterval(refresh,30000);refresh();
- return {refresh,labels:key=>summary[key]?.labels||[],clear:()=>{generation++;editor=null;summary={};}};
+ return {refresh,toggleFlag,labels:key=>summary[key]?.labels||[],clear:()=>{generation++;editor=null;summary={};changing.clear();}};
 })();

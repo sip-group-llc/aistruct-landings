@@ -248,7 +248,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.9",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.10",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -756,6 +756,39 @@ async def work_summary(req: Request):
         raise HTTPException(503, "Não foi possível acessar as anotações. Tente novamente.")
 
 
+@app.post("/api/work-flags")
+async def work_flags(req: Request):
+    _need(req)
+    body = await req.json()
+    key = _work_key(str(body.get('key') or ''))
+    field, value, revision = body.get('field'), body.get('value'), body.get('revision')
+    if field not in ('favorite','pending') or type(value) is not bool or type(revision) is not int or revision < 0:
+        raise HTTPException(400, 'Marcação inválida.')
+    try:
+        return await asyncio.to_thread(_workspace.set_flag, key, field, value, revision)
+    except Conflict:
+        raise HTTPException(409, 'A marcação mudou em outro aparelho. Confira o estado atualizado e tente novamente.')
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, 'Não foi possível salvar a marcação. Tente novamente.')
+
+
+@app.post('/api/work-import-flags')
+async def work_import_flags(req: Request):
+    _need(req)
+    items = await req.json()
+    if not isinstance(items, dict) or len(items) > 1000:
+        raise HTTPException(400, 'Lote de marcações inválido.')
+    for key, flags in items.items():
+        _work_key(key)
+        if not isinstance(flags, dict) or any(k not in ('favorite','pending') or type(v) is not bool for k,v in flags.items()):
+            raise HTTPException(400, 'Marcação inválida.')
+    try:
+        await asyncio.to_thread(_workspace.import_flags, items)
+        return {'ok': True}
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, 'Não foi possível importar as marcações.')
+
+
 @app.get("/api/work")
 async def work_get(req: Request, key: str):
     _need(req)
@@ -791,7 +824,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.9"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.10"}
 
 
 @app.get("/", response_class=HTMLResponse)
