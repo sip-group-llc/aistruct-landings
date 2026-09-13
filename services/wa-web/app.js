@@ -20,6 +20,9 @@ const dayKey = ts => new Date(ts*1000).toLocaleDateString('pt-BR');
 function dayLabel(ts){const d=new Date(ts*1000),n=new Date();if(d.toDateString()===n.toDateString())return 'Hoje';n.setDate(n.getDate()-1);return d.toDateString()===n.toDateString()?'Ontem':d.toLocaleDateString('pt-BR',{day:'numeric',month:'long',year:'numeric'});}
 function listTime(ts){return !ts?'':dayKey(ts)===dayKey(Date.now()/1000)?fmtTime(ts):new Date(ts*1000).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
 const duration = seconds => `${Math.floor(Number(seconds || 0)/60)}:${String(Number(seconds || 0)%60).padStart(2,'0')}`;
+// RESPONSIVE_FOCUS_START: programmatic navigation must not summon a mobile keyboard.
+function focusDesktop(selector){if(matchMedia('(min-width:960px)').matches)$(selector).focus({preventScroll:true});}
+// RESPONSIVE_FOCUS_END
 const keyFor = c => String(c.number || c.jid);
 // CHAT_DEDUPE_START: defensive compaction also cleans lists saved before server alias learning.
 function dedupeChats(list){
@@ -146,9 +149,9 @@ function openChat(c,push=true){saveCurrent();current=getState(c);const s=current
   const originalDraft=$('#txt').value,epoch=authEpoch;
   if(s.replyTo===undefined){const revision=s.replyRevision||0;window.waCache?.get('reply:'+s.key).then(saved=>{if(epoch===authEpoch&&(s.replyRevision||0)===revision&&s.replyTo===undefined){s.replyTo=saved?.cacheable===true?saved:null;if(current===s)renderReply();}});}
   window.waCache?.get('draft:'+s.key).then(saved=>{if(epoch===authEpoch&&current===s&&saved&&$('#txt').value===originalDraft){drafts[s.key]=writtenDrafts[s.key]=saved.text||'';$('#txt').value=drafts[s.key];resizeComposer();renderList();}});
-  loadChat(s);if(matchMedia('(min-width:960px)').matches)$('#txt').focus({preventScroll:true});
+  loadChat(s);focusDesktop('#txt');
 }
-function closeChat(){saveCurrent();current=null;$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;renderList();$('#q').focus({preventScroll:true});}
+function closeChat(){saveCurrent();current=null;$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;renderList();focusDesktop('#q');}
 function renderReply(){const reply=current?.replyTo;$('#reply-preview').hidden=!reply;if(reply){$('#reply-author').textContent='Respondendo a '+reply.author;$('#reply-text').textContent=reply.text;} }
 function setReply(s,reply){s.replyTo=reply;s.replyRevision=(s.replyRevision||0)+1;window.waCache?.put('reply:'+s.key,reply?.cacheable===true?reply:null);if(current===s)renderReply();}
 function chooseReply(s,m){if(current!==s||m.localStatus)return;setReply(s,{id:m.id,jid:m.jid||s.chat.jid,cacheable:m.cacheable===true,author:m.fromMe?'você':m.who||s.chat.name||'contato',type:m.type,text:m.text||({audio:'Áudio',image:'Foto',video:'Vídeo',document:'Documento',contact:'Contato'}[m.type]||'Mensagem')});$('#txt').focus({preventScroll:true});}
