@@ -112,13 +112,31 @@ function openChat(c,push=true){saveCurrent();current=getState(c);const s=current
  if(push&&history.state?.waKey!==s.key){if(history.state?.waKey)history.replaceState({waKey:s.key},'');else history.pushState({waKey:s.key},'');}
  requestAnimationFrame(()=>{if(current!==s)return;$('#msgs').scrollTop=s.initialized?(s.atBottom?$('#msgs').scrollHeight:s.scroll):0;updateJump();});
   const originalDraft=$('#txt').value,epoch=authEpoch;
+  if(s.replyTo===undefined){const revision=s.replyRevision||0;window.waCache?.get('reply:'+s.key).then(saved=>{if(epoch===authEpoch&&(s.replyRevision||0)===revision&&s.replyTo===undefined){s.replyTo=saved?.cacheable===true?saved:null;if(current===s)renderReply();}});}
   window.waCache?.get('draft:'+s.key).then(saved=>{if(epoch===authEpoch&&current===s&&saved&&$('#txt').value===originalDraft){drafts[s.key]=writtenDrafts[s.key]=saved.text||'';$('#txt').value=drafts[s.key];resizeComposer();renderList();}});
   loadChat(s);if(matchMedia('(min-width:960px)').matches)$('#txt').focus({preventScroll:true});
 }
 function closeChat(){saveCurrent();current=null;$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;renderList();$('#q').focus({preventScroll:true});}
 function renderReply(){const reply=current?.replyTo;$('#reply-preview').hidden=!reply;if(reply){$('#reply-author').textContent='Respondendo a '+reply.author;$('#reply-text').textContent=reply.text;} }
-function chooseReply(s,m){if(current!==s||m.localStatus)return;s.replyTo={id:m.id,jid:m.jid||s.chat.jid,author:m.fromMe?'você':m.who||s.chat.name||'contato',type:m.type,text:m.text||({audio:'Áudio',image:'Foto',video:'Vídeo',document:'Documento',contact:'Contato'}[m.type]||'Mensagem')};renderReply();$('#txt').focus({preventScroll:true});}
-$('#cancel-reply').onclick=()=>{if(current)current.replyTo=null;renderReply();$('#txt').focus({preventScroll:true});};
+function setReply(s,reply){s.replyTo=reply;s.replyRevision=(s.replyRevision||0)+1;window.waCache?.put('reply:'+s.key,reply?.cacheable===true?reply:null);if(current===s)renderReply();}
+function chooseReply(s,m){if(current!==s||m.localStatus)return;setReply(s,{id:m.id,jid:m.jid||s.chat.jid,cacheable:m.cacheable===true,author:m.fromMe?'você':m.who||s.chat.name||'contato',type:m.type,text:m.text||({audio:'Áudio',image:'Foto',video:'Vídeo',document:'Documento',contact:'Contato'}[m.type]||'Mensagem')});$('#txt').focus({preventScroll:true});}
+$('#cancel-reply').onclick=()=>{if(current)setReply(current,null);$('#txt').focus({preventScroll:true});};
+async function jumpToQuote(s,id){
+ if(current!==s||s.jumping)return;
+ if(!id){toast('Esta citação não contém o identificador da mensagem original.');return;}
+ const epoch=authEpoch;s.jumping=true;
+ try{
+  for(let page=0;page<=10;page++){
+   if(current!==s||epoch!==authEpoch)return;
+   const node=s.nodes.get(id);if(node){node.tabIndex=-1;node.scrollIntoView({block:'center',behavior:'smooth'});node.focus({preventScroll:true});node.classList.add('quote-target');setTimeout(()=>node.classList.remove('quote-target'),2000);return;}
+   if(localOnly){toast('Mensagem original não salva neste aparelho. Conecte-se para buscar no histórico.');return;}
+   if(s.loading||s.older){toast('O histórico está carregando. Toque novamente na citação em instantes.');return;}
+   if(!s.hasMore){toast('A mensagem original não está disponível no histórico recebido.');return;}
+   if(page===10){toast('Ainda há histórico anterior. Toque novamente na citação para continuar a busca.');return;}
+   toast('Buscando mensagem original no histórico…');const cursor=s.cursor;await loadChat(s,true);if(s.cursor===cursor){return;}
+  }
+ }finally{s.jumping=false;}
+}
 function openSharedContact(contact,number){
  if(!/^[0-9]{7,15}$/.test(number))return;
  let c=chats.find(c=>!c.group&&String(c.number).replace(/\D/g,'')===number);
@@ -166,7 +184,7 @@ function renderMessages(s){if(current!==s)return;const list=Array.from(s.message
 function bubble(m,s){const d=document.createElement('article');d.className='m'+(m.fromMe?' me':'')+(m.type==='audio'?' audio':'')+(['image','sticker','video'].includes(m.type)?' photo':'')+(m.localStatus?.includes('confirmado')?' failed':'');d.dataset.id=m.id;
  const mediaJid=m.jid||s.chat.jid,src=m.localUrl||'/api/media?'+new URLSearchParams({jid:mediaJid,id:m.id,v:'4'});
  let html=(!m.fromMe&&s.chat.group?`<div class="who">${esc(m.who||m.participant||'Participante')}</div>`:'');
- if(m.quote)html+=`<div class="quote" aria-label="Mensagem citada">${esc(m.quote.text||({image:'Foto',audio:'Áudio',video:'Vídeo',document:'Documento'}[m.quote.type]||'Mensagem citada'))}</div>`;
+ if(m.quote)html+=`<button type="button" class="quote" aria-label="Ir para mensagem citada">${esc(m.quote.text||({image:'Foto',audio:'Áudio',video:'Vídeo',document:'Documento'}[m.quote.type]||'Mensagem citada'))}</button>`;
  if(m.type==='text')html+=`<div class="body-text">${linkify(m.text)}</div>`;
  else if(m.type==='contact')html+=(m.contacts||[]).map((contact,i)=>`<section class="shared-contact"><strong>${esc(contact.name)}</strong>${contact.phones.length?contact.phones.map((number,j)=>`<div class="shared-phone"><button type="button" class="contact-open" data-contact="${i}" data-phone="${j}" aria-label="Conversar com ${esc(contact.name)} pelo número ${esc(number)}">${icon('chat')}<span>${esc(phone({number}))}<small>Conversar</small></span></button><button type="button" class="contact-copy ghost" data-contact="${i}" data-phone="${j}" aria-label="Copiar número ${esc(number)}">Copiar</button></div>`).join(''):'<p class="muted">Este contato foi compartilhado sem número.</p>'}</section>`).join('')||'<p>Contato sem dados disponíveis.</p>';
  else if(m.type==='image'||m.type==='sticker')html+=`<button type="button" class="media-open" aria-label="Abrir imagem"><img src="${esc(src)}" alt="${esc(m.text||'Imagem recebida')}" loading="lazy" width="320" height="220"></button><div class="body-text">${linkify(m.text)}</div>`;
@@ -179,6 +197,7 @@ function bubble(m,s){const d=document.createElement('article');d.className='m'+(
  html+=`<div class="stamp"><time datetime="${new Date(m.ts*1000).toISOString()}" title="${esc(new Date(m.ts*1000).toLocaleString('pt-BR'))}">${fmtTime(m.ts)}</time><span class="receipt">${esc(m.fromMe?msgStatus(m):'')}</span></div>`;
  if(m.localStatus==='Envio não confirmado')html+='<div class="message-actions"><button type="button" class="verify-send ghost">Verificar conversa</button><button type="button" class="copy-message ghost">Copiar texto</button></div>';
  d.innerHTML=html;
+ d.querySelector('.quote')?.addEventListener('click',()=>jumpToQuote(s,m.quote.id));
  if(!m.localStatus&&m.type!=='other'){const actions=document.createElement('div');actions.className='message-actions reply-actions';const reply=document.createElement('button');reply.type='button';reply.className='ghost';reply.textContent='Responder';reply.onclick=()=>chooseReply(s,m);actions.append(reply);d.append(actions);}
  if(m.type==='audio')mediaControls(d.querySelector('audio'),m.seconds);
  d.querySelector('.video-open')?.addEventListener('click',()=>{const video=$('#full-video');video.src=src;$('#video-download').href=src;$('#video-dialog').showModal();video.play().catch(()=>toast('Toque em reproduzir para iniciar o vídeo.'));});
@@ -239,9 +258,9 @@ function resizeComposer(){renderReply();const t=$('#txt');t.style.height='auto';
 async function sendMessage(){const s=current,text=$('#txt').value.trim();if(!s||s.sending||!text||!session)return;
  if(localOnly){toast('Conecte-se para enviar. Seu rascunho continua salvo.');return;}
  s.sending=true;const reply=s.replyTo?{...s.replyTo}:null;const requestId=crypto.randomUUID(),localId='local-'+requestId;
- const m={id:localId,fromMe:true,ts:Math.floor(Date.now()/1000),type:'text',text,quote:reply?{id:reply.id,text:reply.text,type:reply.type}:null,localStatus:'Enviando…'};s.messages.set(localId,m);drafts[s.key]='';persistDrafts();$('#txt').value='';s.replyTo=null;renderReply();resizeComposer();renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;renderList();
+ const m={id:localId,fromMe:true,ts:Math.floor(Date.now()/1000),type:'text',text,quote:reply?{id:reply.id,text:reply.text,type:reply.type}:null,localStatus:'Enviando…'};s.messages.set(localId,m);drafts[s.key]='';persistDrafts();$('#txt').value='';setReply(s,null);resizeComposer();renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;renderList();
  try{const result=await post('/api/send',{number:reply?.jid||s.chat.number||s.chat.jid,text,requestId,...(reply?{replyTo:{id:reply.id,jid:reply.jid}}:{})},{timeout:120000});if(!result.id){m.localStatus='Envio não confirmado';}else{s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(result.id,m);} }
- catch(e){if(!e.uncertain&&e.status){s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);if(!drafts[s.key]){drafts[s.key]=text;if(!s.replyTo)s.replyTo=reply;if(current===s)$('#txt').value=text;persistDrafts();}}else m.localStatus='Envio não confirmado';if(current===s)chatError(e.uncertain?'O envio não foi confirmado. Verifique as mensagens recentes antes de enviar de novo.':e.message);}
+ catch(e){if(!e.uncertain&&e.status){s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);if(!drafts[s.key]){drafts[s.key]=text;if(!s.replyTo)setReply(s,reply);if(current===s)$('#txt').value=text;persistDrafts();}}else m.localStatus='Envio não confirmado';if(current===s)chatError(e.uncertain?'O envio não foi confirmado. Verifique as mensagens recentes antes de enviar de novo.':e.message);}
  finally{s.sending=false;if(current===s){renderMessages(s);resizeComposer();$('#txt').focus({preventScroll:true});}renderList();if(session)loadChat(s);}
 }
 function updateJump(){if(!current)return;const bottom=atBottom();current.atBottom=bottom;if(bottom)current.newCount=0;$('#jump').hidden=bottom;$('#jump').textContent=current.newCount?`${current.newCount} nova${current.newCount===1?' mensagem':'s mensagens'} ↓`:'Ir para mensagens recentes ↓';}
@@ -366,7 +385,7 @@ timelineResize.observe($('#messages'));timelineResize.observe($('#msgs'));
    if(!result.id)throw new Error('Envio não confirmado. Verifique a conversa antes de tentar novamente.');
    const previewUrl=URL.createObjectURL(d.file);
    s.messages.set(result.id,{id:result.id,type:'image',text:'',fromMe:true,ts:Math.floor(Date.now()/1000),localUrl:previewUrl,status:result.status,quote:d.reply?{id:d.reply.id,text:d.reply.text,type:d.reply.type}:null});
-   if(s.replyTo?.id===d.reply?.id)s.replyTo=null;
+   if(s.replyTo?.id===d.reply?.id)setReply(s,null);
    d.sending=false;dialog.close();toast('Imagem enviada.');loadList();
   }catch(error){
    $('#paste-error').textContent=error.message;$('#paste-error').hidden=false;

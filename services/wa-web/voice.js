@@ -126,7 +126,7 @@
    m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(m.id,m);
    // Keep the object URL while the optimistic message is present, so playback is immediate.
    drafts.delete(s.key);
-   if(s.replyTo?.id===reply?.id)s.replyTo=null;
+   if(s.replyTo?.id===reply?.id)setReply(s,null);
    if(reply)m.quote={id:reply.id,text:reply.text,type:reply.type};
    toast('Áudio enviado.');loadList();
   } catch(e) {
