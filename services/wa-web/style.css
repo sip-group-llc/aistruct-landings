@@ -40,5 +40,11 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font:16px/1
 .body-text,.template-card .body-text{font-size:var(--message-size);line-height:1.4;font-weight:400;letter-spacing:normal}
 .m{padding:6px 9px 5px;border-radius:0 8px 8px 8px}.m.me{border-radius:8px 0 8px 8px}.m.grouped{border-radius:8px}
 .m .stamp{margin-top:2px}.transcript p{font-size:var(--message-size);line-height:1.4}
+/* Reply stays reachable outside the bubble without reserving a blank row. */
+.m{max-width:min(82%,600px,calc(100% - 48px));margin-top:4px}
+.m .reply-actions{position:absolute;left:calc(100% + 4px);top:0;margin:0;height:44px}
+.m.me .reply-actions{left:auto;right:calc(100% + 4px)}
+.m .reply-actions button{width:44px;height:44px;min-height:44px;padding:0;border-radius:50%;font-size:22px;color:var(--dim)}
+@media(max-width:959px){.m{max-width:calc(100% - 48px)}}
 #my-profile-dialog{max-height:90dvh;overflow:auto}#my-profile-fields{border:0;padding:0;margin:16px 0}#my-profile-fields label{display:block;color:var(--acc);font-size:14px;margin:20px 0 8px}.profile-field{display:flex;gap:8px;align-items:center}.profile-field input{min-width:0}.profile-field button{flex:none}#my-profile-fields>button{margin-top:8px}#my-profile-status{font-size:14px;margin:16px 0}#my-number{text-align:center;margin:12px 0}.my-photo-preview{width:120px;height:120px;border-radius:50%;margin:12px auto;background:var(--raised);display:grid;place-items:center;overflow:hidden}.my-photo-preview img{width:100%;height:100%;object-fit:cover}#my-photo-file{font-size:14px}#message-size{width:100%;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--raised);color:var(--txt);padding:8px}
 @media(max-width:959px){:root{--message-size:17px}.body-text,.template-card .body-text{line-height:1.35}.profile-field{flex-wrap:wrap}.profile-field input{flex:1;min-width:150px}}

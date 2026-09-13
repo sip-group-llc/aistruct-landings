@@ -247,7 +247,7 @@ function bubble(m,s){const d=document.createElement('article');d.className='m'+(
  if(m.localStatus==='Envio não confirmado')html+='<div class="message-actions"><button type="button" class="verify-send ghost">Verificar conversa</button><button type="button" class="copy-message ghost">Copiar texto</button></div>';
  d.innerHTML=html;
  d.querySelector('.quote')?.addEventListener('click',()=>jumpToQuote(s,m.quote.id));
- if(!m.localStatus&&m.type!=='other'){const actions=document.createElement('div');actions.className='message-actions reply-actions';const reply=document.createElement('button');reply.type='button';reply.className='ghost';reply.textContent='Responder';reply.onclick=()=>chooseReply(s,m);actions.append(reply);d.append(actions);}
+ if(!m.localStatus&&m.type!=='other'){const actions=document.createElement('div');actions.className='message-actions reply-actions';const reply=document.createElement('button');reply.type='button';reply.className='ghost';reply.textContent='↩';reply.setAttribute('aria-label','Responder');reply.title='Responder';reply.onclick=()=>chooseReply(s,m);actions.append(reply);d.append(actions);}
  if(m.type==='audio')mediaControls(d.querySelector('audio'),m.seconds);
  d.querySelector('.video-open')?.addEventListener('click',()=>{const video=$('#full-video');video.src=src;$('#video-download').href=src;$('#video-dialog').showModal();video.play().catch(()=>toast('Toque em reproduzir para iniciar o vídeo.'));});
  d.querySelectorAll('.contact-open,.contact-copy').forEach(button=>button.addEventListener('click',()=>{const contact=m.contacts[Number(button.dataset.contact)],number=contact.phones[Number(button.dataset.phone)];if(button.classList.contains('contact-copy'))copy(number);else openSharedContact(contact,number);}));
