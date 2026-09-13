@@ -1,5 +1,5 @@
 // Public shell only. API responses, media and credentials never enter CacheStorage.
-const CACHE='wa-public-v14',VERSION='20260913-16';
+const CACHE='wa-public-v15',VERSION='20260913-17';
 const SHELL=['/','/offline.html','/manifest.webmanifest','/icon-192.png','/icon-512.png','/apple-touch-icon.png',
  ...['style.css','cache.js','app.js','voice.js','profile.js','pwa.js'].map(name=>'/'+name+'?v='+VERSION)];
 self.addEventListener('install',event=>event.waitUntil((async()=>{

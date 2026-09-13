@@ -73,13 +73,16 @@ const readKey=m=>`${m.jid||''}|${m.id}`;
 const sourceKey=s=>`${s.jid}|${s.lastId}|${s.count}`;
 function reconciledUnread(chat,messages=[]){
  if(!chat.unreadSources)return Number(chat.unread)||0;
+ const acknowledged=new Set(Object.entries(readSnapshots).filter(([,value])=>value===0).map(([key])=>key.slice(0,key.lastIndexOf('|'))));
  let total=0;
  for(const source of chat.unreadSources){
   const count=Math.max(0,Number(source.count)||0),token=sourceKey(source);
   let remaining=Object.hasOwn(readSnapshots,token)?Math.min(count,readSnapshots[token]):count;
   // Require the snapshot frontier: a truncated/older page must not clear new reads.
   const aliases=new Set([source.jid,...(chat.jids||[])]);
-  if(count===1&&!messages.some(m=>m.id===source.lastId&&m.fromMe)&&[...aliases].some(jid=>readReceipts[readKey({jid,id:source.lastId})]))remaining=0;
+  // A confirmed latest incoming message acknowledges this conversation snapshot,
+  // including older messages outside the loaded page. A new lastId stays unread.
+  if(source.lastId&&!messages.some(m=>m.id===source.lastId&&m.fromMe)&&[...aliases].some(jid=>readReceipts[readKey({jid,id:source.lastId})]))remaining=0;
   const frontier=messages.find(m=>m.id===source.lastId&&aliases.has(m.jid));
   if(source.lastId&&frontier){
    const incoming=messages.filter(m=>m.jid===frontier.jid&&!m.fromMe&&Number(m.ts)<=Number(source.ts))
@@ -87,6 +90,10 @@ function reconciledUnread(chat,messages=[]){
    const candidates=incoming.slice(0,count),cutoff=candidates.at(-1)?.ts;
    const ambiguous=incoming.filter(m=>m.ts===cutoff).length>candidates.filter(m=>m.ts===cutoff).length;
    remaining=Math.min(remaining,count-candidates.filter(m=>[...aliases].some(jid=>readReceipts[readKey({jid,id:m.id})])&&(!ambiguous||m.ts!==cutoff||m.id===source.lastId)).length);
+   // Once a previously acknowledged frontier is in this newest page, only
+   // incoming messages after it can be new; do not resurrect the old total.
+   const boundary=incoming.find(m=>[...aliases].some(jid=>readReceipts[readKey({jid,id:m.id})]&&acknowledged.has(readKey({jid,id:m.id}))));
+   if(boundary)remaining=Math.min(remaining,incoming.filter(m=>Number(m.ts)>=Number(boundary.ts)&&![...aliases].some(jid=>readReceipts[readKey({jid,id:m.id})])).length);
   }
   if(source.lastId)readSnapshots[token]=remaining;
   total+=remaining;

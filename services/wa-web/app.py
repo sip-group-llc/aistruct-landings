@@ -331,7 +331,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.16",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.17",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -807,9 +807,24 @@ async def read(req: Request):
     items = [k for k in items if k["id"] and k["remoteJid"]]
     if not items:
         return {"ok": True}
-    await _post(f"/chat/markMessageAsRead/{INST}", {"readMessages": items})
+    try:
+        aliases = await asyncio.to_thread(_workspace.chat_aliases)
+    except (OSError, sqlite3.Error):
+        aliases = {}
+    wire_items = []
+    for item in items:
+        wire = dict(item)
+        if wire['remoteJid'].endswith('@lid'):
+            number = aliases.get(wire['remoteJid'], '')
+            if not re.fullmatch(r'[0-9]{5,20}', number):
+                raise HTTPException(502, 'Contato ainda sem número associado. Atualize a lista e tente novamente.')
+            wire['remoteJid'] = number + '@s.whatsapp.net'
+        wire_items.append(wire)
+    result = await _post(f"/chat/markMessageAsRead/{INST}", {"readMessages": wire_items})
+    if not isinstance(result, dict) or result.get('read') != 'success':
+        raise HTTPException(502, 'A integração não confirmou a leitura. Tentaremos novamente.')
     if _disk.root:
-        await asyncio.to_thread(_push.mark_read, items)
+        await asyncio.to_thread(_push.mark_read, items + wire_items)
     return {"ok": True}
 
 
@@ -1038,7 +1053,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.16"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.17"}
 
 
 @app.get("/", response_class=HTMLResponse)

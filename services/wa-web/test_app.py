@@ -27,6 +27,20 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_read_lid_uses_verified_phone_alias_and_requires_confirmation(self):
+        from unittest.mock import AsyncMock
+        with tempfile.TemporaryDirectory() as root:
+            workspace=wa.Workspace(root);workspace.learn_chat_aliases([('123@lid','5511999998888')])
+            store=wa.PushStore(root,'badge')
+            with patch.object(wa,'_workspace',workspace),patch.object(wa,'_push',store),patch.object(wa,'_post',AsyncMock(return_value={'read':'success'})) as post:
+                r=await self.client.post('/api/read',json={'keys':[{'jid':'123@lid','id':'latest'}]})
+                self.assertEqual(r.status_code,200)
+                self.assertEqual(post.call_args.args[1]['readMessages'][0]['remoteJid'],'5511999998888@s.whatsapp.net')
+                post.return_value={'read':'failed'}
+                r=await self.client.post('/api/read',json={'keys':[{'jid':'123@lid','id':'failed'}]})
+                self.assertEqual(r.status_code,502)
+                self.assertNotIn('123@lid|failed',store.receipts())
+
     async def test_own_profile_read_uses_own_number_and_filters_metadata(self):
         from unittest.mock import AsyncMock
         own={'wuid':'5511999998888:1@s.whatsapp.net'}
@@ -63,7 +77,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
             config=await self.client.get('/api/push');self.assertTrue(config.json()['available']);self.assertEqual(len(config.json()['publicKey']),87)
             sub=subscription();self.assertEqual((await self.client.post('/api/push/subscribe',json=sub)).status_code,200)
             bad={**sub,'endpoint':'https://127.0.0.1/private'};self.assertEqual((await self.client.post('/api/push/subscribe',json=bad)).status_code,400)
-            with patch.object(wa,'_post',return_value={'ok':True}):
+            with patch.object(wa,'_post',return_value={'read':'success'}):
                 self.assertEqual((await self.client.post('/api/read',json={'keys':[{'jid':'a','id':'1'}]})).status_code,200)
             self.assertTrue((await self.client.get('/api/read-state')).json()['a|1'])
             self.assertEqual((await self.client.post('/api/push/unsubscribe',json={'endpoint':sub['endpoint']})).status_code,200)
@@ -512,7 +526,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(wa,'_post',failure):
             self.assertEqual((await self.client.post('/api/read',json=body)).status_code,502)
         captured=[]
-        async def success(path,data): captured.append(data); return {}
+        async def success(path,data): captured.append(data); return {'read':'success'}
         with patch.object(wa,'_post',success):
             self.assertTrue((await self.client.post('/api/read',json=body)).json()['ok'])
         self.assertEqual(captured[0]['readMessages'][0]['remoteJid'],'real@g.us')
