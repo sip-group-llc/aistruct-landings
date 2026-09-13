@@ -53,3 +53,14 @@ window.waCache=(()=>{
  }
  return {init,get,put,clear,messages};
 })();
+
+// Offline access is a device preference, never a credential accepted by the server.
+window.waOffline=(()=>{
+ const KEY='wa-offline-access-v1',MAX_AGE=86400000;
+ let verified=null;
+ function get(){try{const value=JSON.parse(localStorage.getItem(KEY)||'null');return value&&typeof value.cacheScope==='string'&&value.cacheScope.length>0&&Number.isFinite(value.verifiedAt)&&Date.now()>=value.verifiedAt&&Date.now()-value.verifiedAt<MAX_AGE?value:null;}catch{return null;}}
+ function revoke(){verified=null;try{localStorage.removeItem(KEY);}catch{}}
+ function remember(info){const enabled=Boolean(get());verified={cacheScope:info.cacheScope,verifiedAt:Date.now()};if(enabled)enable(true);}
+ function enable(value){if(!value){try{localStorage.removeItem(KEY);}catch{}return true;}if(!verified)return false;try{localStorage.setItem(KEY,JSON.stringify(verified));return Boolean(get());}catch{return false;}}
+ return {get,remember,enable,revoke};
+})();

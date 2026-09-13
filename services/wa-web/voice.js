@@ -113,6 +113,7 @@
  async function send() {
   const s=current,d=s&&drafts.get(s.key);
   if(!s||!d||s.sending||d.uncertain||!session)return;
+  if(localOnly){toast('Conecte-se para enviar o áudio.');return;}
   s.sending=true;$('#voice-preview').pause();sync();
   const requestId=crypto.randomUUID(),localId='local-'+requestId;
   const m={id:localId,type:'audio',text:'',fromMe:true,ts:Math.floor(Date.now()/1000),seconds:d.seconds,localUrl:d.url,localStatus:'Enviando…'};
