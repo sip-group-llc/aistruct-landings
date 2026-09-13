@@ -114,17 +114,20 @@
   const s=current,d=s&&drafts.get(s.key);
   if(!s||!d||s.sending||d.uncertain||!session)return;
   if(localOnly){toast('Conecte-se para enviar o áudio.');return;}
+  const reply=s.replyTo?{...s.replyTo}:null;
   s.sending=true;$('#voice-preview').pause();sync();
   const requestId=crypto.randomUUID(),localId='local-'+requestId;
   const m={id:localId,type:'audio',text:'',fromMe:true,ts:Math.floor(Date.now()/1000),seconds:d.seconds,localUrl:d.url,localStatus:'Enviando…'};
   s.messages.set(localId,m);renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;
   try {
-   const result=await api('/api/send-audio?'+new URLSearchParams({number:s.chat.number||s.chat.jid,requestId}),{method:'POST',headers:{'Content-Type':d.blob.type||'application/octet-stream'},body:d.blob,timeout:180000});
+   const result=await api('/api/send-audio?'+new URLSearchParams({number:reply?.jid||s.chat.number||s.chat.jid,requestId,...(reply?{replyId:reply.id}:{})}),{method:'POST',headers:{'Content-Type':d.blob.type||'application/octet-stream'},body:d.blob,timeout:180000});
    if(!result.id)throw Object.assign(new Error('O servidor não confirmou o envio. Verifique a conversa.'),{uncertain:true});
    s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);
    m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(m.id,m);
    // Keep the object URL while the optimistic message is present, so playback is immediate.
    drafts.delete(s.key);
+   if(s.replyTo?.id===reply?.id)s.replyTo=null;
+   if(reply)m.quote={id:reply.id,text:reply.text,type:reply.type};
    toast('Áudio enviado.');loadList();
   } catch(e) {
    if(e.uncertain){d.uncertain=true;m.localStatus='Envio não confirmado';}

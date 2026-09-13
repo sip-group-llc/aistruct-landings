@@ -245,7 +245,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.6",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.7",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -437,6 +437,22 @@ async def media(req: Request, jid: str, id: str):
     return Response(raw, media_type=mime.split(";")[0], headers=headers)
 
 
+async def _resolve_reply(number, reply):
+    if reply is None:
+        return None
+    if not isinstance(reply, dict) or not isinstance(reply.get("id"), str) or not isinstance(reply.get("jid"), str):
+        raise HTTPException(400, "Mensagem citada inválida.")
+    mid, jid = reply["id"], reply["jid"]
+    if not mid or len(mid) > 150 or len(jid) > 150 or jid != number:
+        raise HTTPException(400, "A resposta deve permanecer na conversa da mensagem citada.")
+    found = await _post(f"/chat/findMessages/{INST}", {"where": {"key": {"id": mid, "remoteJid": jid}}, "limit": 1, "page": 1})
+    original = next((r for r in (found.get("messages") or {}).get("records", [])
+                     if (r.get("key") or {}).get("id") == mid and (r.get("key") or {}).get("remoteJid") == jid), None)
+    if not original or not original.get("message"):
+        raise HTTPException(409, "A mensagem citada não está mais disponível. Cancele a citação para enviar sem ela.")
+    return {"key": original["key"], "message": original["message"]}
+
+
 @app.post("/api/send")
 async def send(req: Request):
     _need(req)
@@ -449,6 +465,9 @@ async def send(req: Request):
         raise HTTPException(400, "Destinatário ausente.")
     request_id = str(body.get("requestId") or "")[:100]
     payload = {"number": number, "text": text}
+    reply = body.get("replyTo")
+    if reply is not None:
+        payload["quoted"] = await _resolve_reply(number, reply)
     if request_id:
         entry = _sends.get(request_id)
         if entry:
@@ -511,19 +530,20 @@ async def _voice_ogg(raw: bytes) -> bytes:
             return encoded
 
 
-async def _send_voice(raw: bytes, number: str):
+async def _send_voice(raw: bytes, number: str, quoted=None):
     try:
         encoded = await _voice_ogg(raw)
     except asyncio.TimeoutError:
         raise HTTPException(503, "O áudio demorou para processar. Tente um áudio mais curto.")
     data = await _post(f"/message/sendWhatsAppAudio/{INST}",
-                       {"number": number, "audio": base64.b64encode(encoded).decode(), "encoding": False})
+                       {"number": number, "audio": base64.b64encode(encoded).decode(), "encoding": False,
+                        **({"quoted": quoted} if quoted else {})})
     mid = (data.get("key") or {}).get("id")
     return {"id": mid, "status": data.get("status")}
 
 
 @app.post("/api/send-audio")
-async def send_audio(req: Request, number: str, requestId: str):
+async def send_audio(req: Request, number: str, requestId: str, replyId: str = ""):
     _need(req)
     if not number or len(number) > 100 or not requestId or len(requestId) > 100:
         raise HTTPException(400, "Destinatário ou identificação do envio inválidos.")
@@ -539,6 +559,9 @@ async def send_audio(req: Request, number: str, requestId: str):
     if not raw:
         raise HTTPException(400, "O áudio está vazio.")
     fingerprint = {"kind": "audio", "number": number, "sha256": sha256(raw).hexdigest()}
+    if replyId:
+        fingerprint["replyId"] = replyId
+    quoted = await _resolve_reply(number, {"id": replyId, "jid": number}) if replyId else None
     entry = _sends.get(requestId)
     if entry:
         if entry[0] != fingerprint:
@@ -550,13 +573,13 @@ async def send_audio(req: Request, number: str, requestId: str):
             if finished is None:
                 raise HTTPException(429, "Há muitos envios em andamento. Aguarde.")
             _sends.pop(finished)
-        task = asyncio.create_task(_send_voice(bytes(raw), number))
+        task = asyncio.create_task(_send_voice(bytes(raw), number, quoted)) if quoted else asyncio.create_task(_send_voice(bytes(raw), number))
         _sends[requestId] = (fingerprint, task)
     return await asyncio.shield(task)
 
 
 @app.post("/api/send-image")
-async def send_image(req: Request, number: str, requestId: str):
+async def send_image(req: Request, number: str, requestId: str, replyId: str = ""):
     _need(req)
     if not number or len(number) > 100 or not requestId or len(requestId) > 100:
         raise HTTPException(400, "Destinatário ou identificação do envio inválidos.")
@@ -569,6 +592,9 @@ async def send_image(req: Request, number: str, requestId: str):
     if not mime:
         raise HTTPException(415, "Cole uma imagem PNG ou JPEG.")
     fingerprint = {"kind": "image", "number": number, "sha256": sha256(raw).hexdigest()}
+    if replyId:
+        fingerprint["replyId"] = replyId
+    quoted = await _resolve_reply(number, {"id": replyId, "jid": number}) if replyId else None
     entry = _sends.get(requestId)
     if entry:
         if entry[0] != fingerprint:
@@ -583,6 +609,8 @@ async def send_image(req: Request, number: str, requestId: str):
         payload = {"number": number, "mediatype": "image", "mimetype": mime,
                    "caption": "", "fileName": "print.png" if mime == "image/png" else "print.jpg",
                    "media": base64.b64encode(raw).decode()}
+        if quoted:
+            payload["quoted"] = quoted
         task = asyncio.create_task(_post(f"/message/sendMedia/{INST}", payload))
         _sends[requestId] = (fingerprint, task)
     data = await asyncio.shield(task)
@@ -712,7 +740,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.6"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.7"}
 
 
 @app.get("/", response_class=HTMLResponse)

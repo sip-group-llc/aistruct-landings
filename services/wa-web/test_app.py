@@ -27,6 +27,43 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_audio_and_image_replies_share_original_and_deduplicate_concurrently(self):
+        jid='media-reply@lid';original=record(jid,1,10);calls=[]
+        async def fake(path,body):
+            if '/findMessages/' in path:
+                await asyncio.sleep(.01)
+                return {'messages':{'records':[original]}}
+            calls.append((path,body));return {'key':{'id':'media-replied'},'status':'PENDING'}
+        async def encode(raw):return b'OggSsynthetic'
+        with patch.object(wa,'_post',fake),patch.object(wa,'_voice_ogg',encode):
+            for kind,raw,mime in [('audio',b'synthetic','audio/wav'),('image',b'\x89PNG\r\n\x1a\nsynthetic','image/png')]:
+                url=f'/api/send-{kind}?number={jid}&requestId={kind}-quoted&replyId={original["key"]["id"]}'
+                a,b=await asyncio.gather(self.client.post(url,content=raw,headers={'Content-Type':mime}),self.client.post(url,content=raw,headers={'Content-Type':mime}))
+                self.assertEqual(a.status_code,200,a.text);self.assertEqual(b.status_code,200,b.text)
+                self.assertEqual(calls[-1][1]['quoted'],{'key':original['key'],'message':original['message']})
+            self.assertEqual(len(calls),2)
+
+    async def test_quoted_reply_uses_original_and_rejects_other_conversation(self):
+        jid='reply@s.whatsapp.net'
+        original=record(jid, 1, 10)
+        calls=[]
+        async def fake(path, body):
+            calls.append((path,body))
+            if '/findMessages/' in path:return {'messages':{'records':[original]}}
+            return {'key':{'id':'reply-sent'},'status':'PENDING'}
+        payload={'number':jid,'text':'Resposta','requestId':'reply-test','replyTo':{'jid':jid,'id':original['key']['id'],'text':'forged'}}
+        with patch.object(wa,'_post',fake):
+            response=await self.client.post('/api/send',json=payload)
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(calls[-1][1]['quoted'],{'key':original['key'],'message':original['message']})
+            await self.client.post('/api/send',json=payload)
+            self.assertEqual(sum('/sendText/' in p for p,b in calls),1)
+            response=await self.client.post('/api/send',json={**payload,'number':'different@s.whatsapp.net'})
+            self.assertEqual(response.status_code,400)
+            response=await self.client.post('/api/send',json={**payload,'requestId':'missing','replyTo':{'id':'missing','jid':jid}})
+            self.assertEqual(response.status_code,409)
+            self.assertEqual(sum('/sendText/' in p for p,b in calls),1)
+
     async def test_disk_media_recovers_without_network_and_respects_policy(self):
         with tempfile.TemporaryDirectory() as root:
             store = wa.PersistentCache(root, 'test')

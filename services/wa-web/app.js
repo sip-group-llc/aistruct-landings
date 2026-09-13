@@ -116,6 +116,9 @@ function openChat(c,push=true){saveCurrent();current=getState(c);const s=current
   loadChat(s);if(matchMedia('(min-width:960px)').matches)$('#txt').focus({preventScroll:true});
 }
 function closeChat(){saveCurrent();current=null;$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;renderList();$('#q').focus({preventScroll:true});}
+function renderReply(){const reply=current?.replyTo;$('#reply-preview').hidden=!reply;if(reply){$('#reply-author').textContent='Respondendo a '+reply.author;$('#reply-text').textContent=reply.text;} }
+function chooseReply(s,m){if(current!==s||m.localStatus)return;s.replyTo={id:m.id,jid:m.jid||s.chat.jid,author:m.fromMe?'você':m.who||s.chat.name||'contato',type:m.type,text:m.text||({audio:'Áudio',image:'Foto',video:'Vídeo',document:'Documento',contact:'Contato'}[m.type]||'Mensagem')};renderReply();$('#txt').focus({preventScroll:true});}
+$('#cancel-reply').onclick=()=>{if(current)current.replyTo=null;renderReply();$('#txt').focus({preventScroll:true});};
 function openSharedContact(contact,number){
  if(!/^[0-9]{7,15}$/.test(number))return;
  let c=chats.find(c=>!c.group&&String(c.number).replace(/\D/g,'')===number);
@@ -176,6 +179,7 @@ function bubble(m,s){const d=document.createElement('article');d.className='m'+(
  html+=`<div class="stamp"><time datetime="${new Date(m.ts*1000).toISOString()}" title="${esc(new Date(m.ts*1000).toLocaleString('pt-BR'))}">${fmtTime(m.ts)}</time><span class="receipt">${esc(m.fromMe?msgStatus(m):'')}</span></div>`;
  if(m.localStatus==='Envio não confirmado')html+='<div class="message-actions"><button type="button" class="verify-send ghost">Verificar conversa</button><button type="button" class="copy-message ghost">Copiar texto</button></div>';
  d.innerHTML=html;
+ if(!m.localStatus&&m.type!=='other'){const actions=document.createElement('div');actions.className='message-actions reply-actions';const reply=document.createElement('button');reply.type='button';reply.className='ghost';reply.textContent='Responder';reply.onclick=()=>chooseReply(s,m);actions.append(reply);d.append(actions);}
  if(m.type==='audio')mediaControls(d.querySelector('audio'),m.seconds);
  d.querySelector('.video-open')?.addEventListener('click',()=>{const video=$('#full-video');video.src=src;$('#video-download').href=src;$('#video-dialog').showModal();video.play().catch(()=>toast('Toque em reproduzir para iniciar o vídeo.'));});
  d.querySelectorAll('.contact-open,.contact-copy').forEach(button=>button.addEventListener('click',()=>{const contact=m.contacts[Number(button.dataset.contact)],number=contact.phones[Number(button.dataset.phone)];if(button.classList.contains('contact-copy'))copy(number);else openSharedContact(contact,number);}));
@@ -231,13 +235,13 @@ async function transcribe(m,s,button){
 }
 
 async function copy(text){try{await navigator.clipboard.writeText(text);toast('Copiado.');}catch{toast('Não foi possível copiar. Selecione o texto para copiar manualmente.');}}
-function resizeComposer(){const t=$('#txt');t.style.height='auto';t.style.height=Math.min(160,Math.max(46,t.scrollHeight))+'px';$('#send').disabled=!current||current.sending||!t.value.trim();$('#send').setAttribute('aria-label',current?.sending?'Enviando mensagem':'Enviar mensagem');$('#send .send-label').textContent=current?.sending?'Enviando…':'Enviar';window.voiceUX?.sync();}
+function resizeComposer(){renderReply();const t=$('#txt');t.style.height='auto';t.style.height=Math.min(160,Math.max(46,t.scrollHeight))+'px';$('#send').disabled=!current||current.sending||!t.value.trim();$('#send').setAttribute('aria-label',current?.sending?'Enviando mensagem':'Enviar mensagem');$('#send .send-label').textContent=current?.sending?'Enviando…':'Enviar';window.voiceUX?.sync();}
 async function sendMessage(){const s=current,text=$('#txt').value.trim();if(!s||s.sending||!text||!session)return;
  if(localOnly){toast('Conecte-se para enviar. Seu rascunho continua salvo.');return;}
- s.sending=true;const requestId=crypto.randomUUID(),localId='local-'+requestId;
- const m={id:localId,fromMe:true,ts:Math.floor(Date.now()/1000),type:'text',text,localStatus:'Enviando…'};s.messages.set(localId,m);drafts[s.key]='';persistDrafts();$('#txt').value='';resizeComposer();renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;renderList();
- try{const result=await post('/api/send',{number:s.chat.number||s.chat.jid,text,requestId},{timeout:120000});if(!result.id){m.localStatus='Envio não confirmado';}else{s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(result.id,m);} }
- catch(e){m.localStatus='Envio não confirmado';if(current===s)chatError(e.uncertain?'O envio não foi confirmado. Verifique as mensagens recentes antes de enviar de novo.':e.message);}
+ s.sending=true;const reply=s.replyTo?{...s.replyTo}:null;const requestId=crypto.randomUUID(),localId='local-'+requestId;
+ const m={id:localId,fromMe:true,ts:Math.floor(Date.now()/1000),type:'text',text,quote:reply?{id:reply.id,text:reply.text,type:reply.type}:null,localStatus:'Enviando…'};s.messages.set(localId,m);drafts[s.key]='';persistDrafts();$('#txt').value='';s.replyTo=null;renderReply();resizeComposer();renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;renderList();
+ try{const result=await post('/api/send',{number:reply?.jid||s.chat.number||s.chat.jid,text,requestId,...(reply?{replyTo:{id:reply.id,jid:reply.jid}}:{})},{timeout:120000});if(!result.id){m.localStatus='Envio não confirmado';}else{s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(result.id,m);} }
+ catch(e){if(!e.uncertain&&e.status){s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);if(!drafts[s.key]){drafts[s.key]=text;if(!s.replyTo)s.replyTo=reply;if(current===s)$('#txt').value=text;persistDrafts();}}else m.localStatus='Envio não confirmado';if(current===s)chatError(e.uncertain?'O envio não foi confirmado. Verifique as mensagens recentes antes de enviar de novo.':e.message);}
  finally{s.sending=false;if(current===s){renderMessages(s);resizeComposer();$('#txt').focus({preventScroll:true});}renderList();if(session)loadChat(s);}
 }
 function updateJump(){if(!current)return;const bottom=atBottom();current.atBottom=bottom;if(bottom)current.newCount=0;$('#jump').hidden=bottom;$('#jump').textContent=current.newCount?`${current.newCount} nova${current.newCount===1?' mensagem':'s mensagens'} ↓`:'Ir para mensagens recentes ↓';}
@@ -343,8 +347,8 @@ timelineResize.observe($('#messages'));timelineResize.observe($('#msgs'));
   const file=images[0].getAsFile();
   if(!file||!file.size||file.size>10*1024*1024){toast('Cole uma imagem de até 10 MB.');return;}
   if(!['image/png','image/jpeg'].includes(file.type)){toast('Cole um print em PNG ou JPEG.');return;}
-  pending={file,state:current,url:URL.createObjectURL(file),requestId:crypto.randomUUID(),sending:false};
-  $('#paste-recipient').textContent=current.chat.name||current.chat.number;
+  pending={file,state:current,reply:current.replyTo?{...current.replyTo}:null,url:URL.createObjectURL(file),requestId:crypto.randomUUID(),sending:false};
+  $('#paste-recipient').textContent=(current.chat.name||current.chat.number)+(pending.reply?' · Respondendo a '+pending.reply.author+': '+pending.reply.text.slice(0,100):'');
   $('#paste-error').hidden=true;$('#paste-send').disabled=true;$('#paste-send').textContent='Carregando imagem…';
   $('#paste-close').disabled=$('#paste-cancel').disabled=false;
   const preview=$('#paste-preview');
@@ -358,10 +362,11 @@ timelineResize.observe($('#messages'));timelineResize.observe($('#msgs'));
   if(localOnly){toast('Conecte-se para enviar o print.');return;}
   d.sending=true;s.sending=true;$('#paste-send').disabled=true;$('#paste-close').disabled=$('#paste-cancel').disabled=true;$('#paste-send').textContent='Enviando…';$('#paste-error').hidden=true;
   try{
-   const result=await api('/api/send-image?'+new URLSearchParams({number:s.chat.number||s.chat.jid,requestId:d.requestId}),{method:'POST',headers:{'Content-Type':d.file.type},body:d.file,timeout:180000});
+   const result=await api('/api/send-image?'+new URLSearchParams({number:d.reply?.jid||s.chat.number||s.chat.jid,requestId:d.requestId,...(d.reply?{replyId:d.reply.id}:{})}),{method:'POST',headers:{'Content-Type':d.file.type},body:d.file,timeout:180000});
    if(!result.id)throw new Error('Envio não confirmado. Verifique a conversa antes de tentar novamente.');
    const previewUrl=URL.createObjectURL(d.file);
-   s.messages.set(result.id,{id:result.id,type:'image',text:'',fromMe:true,ts:Math.floor(Date.now()/1000),localUrl:previewUrl,status:result.status});
+   s.messages.set(result.id,{id:result.id,type:'image',text:'',fromMe:true,ts:Math.floor(Date.now()/1000),localUrl:previewUrl,status:result.status,quote:d.reply?{id:d.reply.id,text:d.reply.text,type:d.reply.type}:null});
+   if(s.replyTo?.id===d.reply?.id)s.replyTo=null;
    d.sending=false;dialog.close();toast('Imagem enviada.');loadList();
   }catch(error){
    $('#paste-error').textContent=error.message;$('#paste-error').hidden=false;

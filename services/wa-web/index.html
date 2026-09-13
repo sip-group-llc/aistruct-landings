@@ -11,7 +11,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/icon-192.png" type="image/png">
-<link rel="stylesheet" href="/style.css?v=20260913-6">
+<link rel="stylesheet" href="/style.css?v=20260913-7">
 </head>
 <body>
 <a class="skip" href="#q">Ir para busca de conversas</a>
@@ -42,6 +42,7 @@
    <div id="message-search" class="message-search" hidden><label><span class="sr-only">Buscar nas mensagens carregadas</span><input id="mq" type="search" placeholder="Buscar nesta conversa…" autocomplete="off"></label><span id="match-count"></span><button id="prev-match" class="icon ghost" data-icon="up" aria-label="Resultado anterior"></button><button id="next-match" class="icon ghost" data-icon="down" aria-label="Próximo resultado"></button><button id="close-message-search" class="icon ghost" data-icon="close" aria-label="Fechar busca"></button><small>Busca nas mensagens carregadas, incluindo transcrições. Carregue anteriores para ampliar.</small></div>
    <div class="timeline"><div id="msgs" tabindex="0" aria-label="Histórico de mensagens"><div id="more-wrap" hidden><button id="more" class="ghost">Carregar anteriores</button></div><div id="messages"></div></div><button id="jump" hidden>Ir para mensagens recentes ↓</button></div>
    <form id="compose">
+    <div id="reply-preview" class="reply-preview" hidden><div><strong id="reply-author"></strong><p id="reply-text"></p></div><button type="button" id="cancel-reply" class="ghost" aria-label="Cancelar resposta citada">×</button></div>
     <section id="voice-panel" aria-label="Mensagem de voz" hidden>
      <div class="voice-heading"><span>Áudio para <strong id="voice-recipient"></strong></span><a id="voice-download" class="muted" download hidden>Baixar áudio</a></div>
      <div id="voice-live" class="voice-live" role="status"><span class="record-dot"></span><span id="voice-status">Gravando</span><strong id="voice-time">0:00</strong><span class="voice-bars" aria-hidden="true">▂ ▅ ▃ ▇ ▄ ▂ ▆ ▃ ▅ ▂ ▇ ▃</span></div>
@@ -61,9 +62,9 @@
 <dialog id="install-dialog"><header><h2>Leve suas conversas com você</h2><button class="icon ghost" data-close="install-dialog" data-icon="close" aria-label="Fechar instalação"></button></header><p id="install-instructions"></p><p class="muted" style="margin-top:16px">O app abre em uma janela própria. É preciso estar conectado à internet para receber e enviar mensagens. Notificações com o app fechado ainda não estão disponíveis.</p></dialog>
 <dialog id="media-dialog"><header><h2>Imagem</h2><button id="zoom-image" class="ghost">Ampliar</button><a id="download-image" download="imagem" class="muted">Baixar</a><button class="icon ghost" data-close="media-dialog" data-icon="close" aria-label="Fechar imagem"></button></header><div id="media-stage"><img id="full-image" alt="Imagem da conversa"></div></dialog>
 <dialog id="video-dialog" aria-label="Visualizador de vídeo"><header><h2>Vídeo</h2><a id="video-download" download="video" class="muted">Baixar</a><button id="video-fullscreen" class="ghost">Tela cheia</button><button class="icon ghost" data-close="video-dialog" aria-label="Fechar vídeo">×</button></header><video id="full-video" playsinline preload="metadata"></video></dialog>
-<script src="/cache.js?v=20260913-6" defer></script>
-<script src="/app.js?v=20260913-6" defer></script>
-<script src="/voice.js?v=20260913-6" defer></script>
-<script src="/pwa.js?v=20260913-6" defer></script>
+<script src="/cache.js?v=20260913-7" defer></script>
+<script src="/app.js?v=20260913-7" defer></script>
+<script src="/voice.js?v=20260913-7" defer></script>
+<script src="/pwa.js?v=20260913-7" defer></script>
 </body>
 </html>
