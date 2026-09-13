@@ -167,7 +167,10 @@ def _norm(rec: dict) -> dict:
     k = rec.get("key") or {}
     typ, txt, extra = _body(rec)
     content = rec.get("message") or {}
+    cacheable = True
     for _ in range(4):
+        if any(name in content for name in ("ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "viewOnceMessageV2Extension")):
+            cacheable = False
         wrapped = next((v.get("message") for v in content.values()
                         if isinstance(v, dict) and isinstance(v.get("message"), dict)), None)
         if not wrapped:
@@ -176,9 +179,11 @@ def _norm(rec: dict) -> dict:
     context = next((v["contextInfo"] for v in content.values()
                     if isinstance(v, dict) and isinstance(v.get("contextInfo"), dict)), {})
     quoted = context.get("quotedMessage") or {}
+    cacheable = cacheable and not context.get("expiration") and typ != "other"
     qtype, qtext, _ = _body({"message": quoted}) if quoted else ("", "", {})
     return {
         "id": k.get("id"),
+        "cacheable": bool(cacheable),
         "fromMe": bool(k.get("fromMe")),
         "ts": rec.get("messageTimestamp") or 0,
         "who": rec.get("pushName") or "",
@@ -221,7 +226,8 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.3"}
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.4",
+            "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
 @app.get("/api/profile")
@@ -275,6 +281,7 @@ async def chats(req: Request):
             "fromMe": bool(k.get("fromMe")),
             "who": lm.get("pushName") or "",
             "ptype": typ,
+            "cacheable": _norm(lm)["cacheable"] if lm else False,
             "preview": txt or extra.get("fileName") or "",
             "seconds": extra.get("seconds"),
             "pic": c.get("profilePicUrl") or "",
@@ -668,7 +675,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.3"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.4"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -688,7 +695,7 @@ def stylesheet():
 
 @app.get("/{asset}")
 def app_asset(asset: str):
-    public_assets = {"voice.js": "application/javascript", "pwa.js": "application/javascript",
+    public_assets = {"cache.js": "application/javascript", "voice.js": "application/javascript", "pwa.js": "application/javascript",
                      "sw.js": "application/javascript", "manifest.webmanifest": "application/manifest+json",
                      "icon-192.png": "image/png", "icon-512.png": "image/png", "apple-touch-icon.png": "image/png",
                      "offline.html": "text/html"}

@@ -25,6 +25,18 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cache_scope_is_private_and_content_restrictions_survive_normalization(self):
+        info=(await self.client.get('/api/session')).json()
+        self.assertEqual(len(info['cacheScope']),64)
+        self.assertNotEqual(info['cacheScope'],wa._token)
+        normal=record('a@s.whatsapp.net',1,10)
+        self.assertTrue(wa._norm(normal)['cacheable'])
+        for wrapper in ('ephemeralMessage','viewOnceMessage','viewOnceMessageV2'):
+            restricted={**normal,'message':{wrapper:{'message':normal['message']}}}
+            self.assertFalse(wa._norm(restricted)['cacheable'])
+        restricted={**normal,'message':{'extendedTextMessage':{'text':'temporary','contextInfo':{'expiration':86400}}}}
+        self.assertFalse(wa._norm(restricted)['cacheable'])
+
     async def test_unread_frontiers_preserve_each_alias(self):
         a=record('123@lid',1,10)
         a['key']['remoteJidAlt']='5511999998888@s.whatsapp.net'
