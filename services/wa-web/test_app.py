@@ -36,6 +36,13 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         result = wa._norm(rec)
         self.assertEqual(result['type'], 'text')
         self.assertEqual(result['text'], 'Aviso\n\nSeu pedido chegou.\n\nEquipe\n\nOpções da mensagem: Confirmar')
+        self.assertEqual(result['template']['actions'], [{'label': 'Confirmar', 'url': ''}])
+        rec['message']['templateMessage']['hydratedTemplate']['hydratedButtons'] = [
+            {'urlButton': {'displayText': 'Abrir', 'url': 'https://example.com/details'}},
+            {'urlButton': {'displayText': 'Inválido', 'url': 'javascript:alert(1)'}}]
+        actions = wa._norm(rec)['template']['actions']
+        self.assertEqual(actions[0]['url'], 'https://example.com/details')
+        self.assertEqual(actions[1]['url'], '')
         rec['message'] = {'placeholderMessage': {'type': 0}}
         result = wa._norm(rec)
         self.assertFalse(result['cacheable'])

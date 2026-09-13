@@ -19,6 +19,7 @@ import re
 import secrets
 import time
 import tempfile
+from urllib.parse import urlsplit
 from copy import deepcopy
 from collections import OrderedDict
 from hashlib import sha256
@@ -184,6 +185,7 @@ def _body(msg: dict) -> tuple[str, str, dict]:
         parts = [hydrated.get(field) for field in ("hydratedTitleText", "hydratedContentText", "hydratedFooterText")]
         parts = [part for part in parts if isinstance(part, str) and part.strip()]
         labels = []
+        actions = []
         for button in hydrated.get("hydratedButtons") or []:
             if not isinstance(button, dict):
                 continue
@@ -192,10 +194,21 @@ def _body(msg: dict) -> tuple[str, str, dict]:
                 label = action.get("displayText") if isinstance(action, dict) else None
                 if isinstance(label, str) and label.strip():
                     labels.append(label)
+                    url = action.get('url', '') if field == 'urlButton' else ''
+                    try:
+                        parsed = urlsplit(url) if isinstance(url, str) else None
+                        valid = parsed and parsed.scheme in ('https', 'http') and parsed.hostname and not parsed.username and not parsed.password
+                    except ValueError:
+                        valid = False
+                    actions.append({'label': label, 'url': url if valid else ''})
         if labels:
             parts.append("Opções da mensagem: " + " · ".join(labels))
         if parts:
-            return "text", "\n\n".join(parts), {}
+            return "text", "\n\n".join(parts), {'template': {
+                'title': hydrated.get('hydratedTitleText') if isinstance(hydrated.get('hydratedTitleText'), str) else '',
+                'body': hydrated.get('hydratedContentText') if isinstance(hydrated.get('hydratedContentText'), str) else '',
+                'footer': hydrated.get('hydratedFooterText') if isinstance(hydrated.get('hydratedFooterText'), str) else '',
+                'actions': actions}}
     if "placeholderMessage" in m:
         return "other", "O conteúdo desta mensagem não foi sincronizado pelo WhatsApp. Confira no aplicativo original.", {"kind": "placeholderMessage"}
     keys = [k for k in m if k != "messageContextInfo"]
@@ -268,7 +281,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.11",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.12",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -844,7 +857,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.11"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.12"}
 
 
 @app.get("/", response_class=HTMLResponse)
