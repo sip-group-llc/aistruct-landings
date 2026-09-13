@@ -25,6 +25,20 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unread_frontiers_preserve_each_alias(self):
+        a=record('123@lid',1,10)
+        a['key']['remoteJidAlt']='5511999998888@s.whatsapp.net'
+        b=record('5511999998888@s.whatsapp.net',2,20,True)
+        async def upstream(path,body=None):
+            return [{'remoteJid':'123@lid','unreadCount':3,'lastMessage':a},
+                    {'remoteJid':'5511999998888@s.whatsapp.net','unreadCount':2,'lastMessage':b}]
+        with patch.object(wa,'_post',upstream):
+            data=(await self.client.get('/api/chats')).json()
+        self.assertEqual(len(data),1)
+        self.assertEqual(data[0]['unread'],5)
+        self.assertEqual({s['jid']:s['count'] for s in data[0]['unreadSources']},{'123@lid':3,'5511999998888@s.whatsapp.net':2})
+        self.assertEqual({s['lastId'] for s in data[0]['unreadSources']},{a['key']['id'],b['key']['id']})
+
     async def test_profile_fields_and_business_partial(self):
         async def upstream(path, body):
             self.assertEqual(body['number'],'5511999998888')
@@ -111,7 +125,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         login = await self.client.post('/api/login', json={"senha": "test-password"})
         self.assertEqual(login.status_code, 200)
         self.assertIn('Secure', login.headers['set-cookie'])
-        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.13.1')
+        self.assertEqual((await self.client.get('/api/session')).json()['version'], (await self.client.get('/healthz')).json()['version'])
         for asset in ('/', '/app.js', '/style.css'):
             self.assertEqual((await self.client.get(asset)).status_code, 200)
 

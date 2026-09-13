@@ -221,7 +221,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.2"}
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.3"}
 
 
 @app.get("/api/profile")
@@ -269,6 +269,8 @@ async def chats(req: Request):
             "number": number,
             "group": jid.endswith("@g.us"),
             "unread": c.get("unreadCount") or 0,
+            "unreadSources": [{"jid": jid, "count": max(0, int(c.get("unreadCount") or 0)),
+                               "lastId": k.get("id") or "", "ts": lm.get("messageTimestamp") or 0}],
             "ts": lm.get("messageTimestamp") or 0,
             "fromMe": bool(k.get("fromMe")),
             "who": lm.get("pushName") or "",
@@ -284,6 +286,7 @@ async def chats(req: Request):
         newer, older = (item, prev) if item["ts"] > prev["ts"] else (prev, item)
         newer["jids"] = sorted(set(prev["jids"] + item["jids"]))
         newer["unread"] = prev["unread"] + item["unread"]
+        newer["unreadSources"] = prev["unreadSources"] + item["unreadSources"]
         newer["name"] = newer["name"] or older["name"]
         newer["pic"] = newer["pic"] or older["pic"]
         if newer["jid"].endswith("@s.whatsapp.net") and older["jid"].endswith("@lid"):
@@ -665,7 +668,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.2"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.3"}
 
 
 @app.get("/", response_class=HTMLResponse)

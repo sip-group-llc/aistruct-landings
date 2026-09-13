@@ -29,6 +29,37 @@ let chats=[],current=null,filter='all',session=false,canTranscribe=false,listBus
 let listTimer,chatTimer,stateTimer,readTimer,searchMatches=[],matchIndex=-1,toastTimer;
 let authEpoch=0;
 const states=new Map(),listNodes=new Map();
+// READ_RECONCILIATION_START: only confirmed incoming reads reduce a source badge.
+let readReceipts=loadStored(sessionStorage,'wa-read-receipts-v1',{});
+let readSnapshots=loadStored(sessionStorage,'wa-read-snapshots-v1',{});
+const readKey=m=>`${m.jid||''}|${m.id}`;
+const sourceKey=s=>`${s.jid}|${s.lastId}|${s.count}`;
+function reconciledUnread(chat,messages=[]){
+ if(!chat.unreadSources)return Number(chat.unread)||0;
+ let total=0;
+ for(const source of chat.unreadSources){
+  const count=Math.max(0,Number(source.count)||0),token=sourceKey(source);
+  let remaining=Object.hasOwn(readSnapshots,token)?Math.min(count,readSnapshots[token]):count;
+  // Require the snapshot frontier: a truncated/older page must not clear new reads.
+  if(source.lastId&&messages.some(m=>m.id===source.lastId&&m.jid===source.jid)){
+   const incoming=messages.filter(m=>m.jid===source.jid&&!m.fromMe&&Number(m.ts)<=Number(source.ts))
+    .sort((a,b)=>Number(b.ts)-Number(a.ts)||(b.id===source.lastId?1:0)-(a.id===source.lastId?1:0)||String(b.id).localeCompare(String(a.id)));
+   const candidates=incoming.slice(0,count),cutoff=candidates.at(-1)?.ts;
+   const ambiguous=incoming.filter(m=>m.ts===cutoff).length>candidates.filter(m=>m.ts===cutoff).length;
+   remaining=Math.min(remaining,count-candidates.filter(m=>readReceipts[readKey(m)]&&(!ambiguous||m.ts!==cutoff||m.id===source.lastId)).length);
+  }
+  if(source.lastId)readSnapshots[token]=remaining;
+  total+=remaining;
+ }
+ return total;
+}
+function persistReadState(){
+ const trim=(obj,max)=>Object.fromEntries(Object.entries(obj).slice(-max));
+ readReceipts=trim(readReceipts,5000);readSnapshots=trim(readSnapshots,1000);
+ try{sessionStorage.setItem('wa-read-receipts-v1',JSON.stringify(readReceipts));sessionStorage.setItem('wa-read-snapshots-v1',JSON.stringify(readSnapshots));}catch{/* Session memory remains usable. */}
+}
+function reconcileReadBadges(){for(const c of chats)c.unread=reconciledUnread(c,Array.from(states.get(keyFor(c))?.messages.values()||[]));persistReadState();renderList();}
+// READ_RECONCILIATION_END
 function persistDrafts(){try{sessionStorage.setItem('wa-drafts-v2',JSON.stringify(drafts));}catch{toast('Não foi possível guardar o rascunho nesta sessão.');}}
 function persistPreferences(){try{localStorage.setItem('wa-preferences-v2',JSON.stringify(preferences));}catch{toast('Preferências disponíveis apenas enquanto esta página estiver aberta.');}}
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,6000);}
@@ -63,7 +94,7 @@ function renderList(){
 }
 function setFilter(value){filter=value;document.querySelectorAll('[data-filter]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.filter===filter)));renderList();}
 function renderSync(){const st=$('#state');st.classList.toggle('off',Boolean(syncError)||connection!=='open');st.textContent=syncError?(lastSync?`Atualização falhou · última às ${fmtTime(lastSync/1000)}`:'Sem conexão com suas conversas'):connection==='open'?(lastSync?`WhatsApp conectado · atualizado às ${fmtTime(lastSync/1000)}`:'WhatsApp conectado · carregando…'):`WhatsApp ${connection==='unknown'?'não verificado':'desconectado'}${lastSync?' · lista às '+fmtTime(lastSync/1000):''}`;st.title=syncError;}
-async function loadList(){if(listBusy||!session)return;listBusy=true;const epoch=authEpoch;$('#refresh-list').disabled=true;if(!chats.length)renderList();try{const data=await api('/api/chats',{timeout:120000});if(epoch!==authEpoch)return;chats=[...chats.filter(c=>c.shared&&!data.some(x=>keyFor(x)===keyFor(c))),...data];lastSync=Date.now();syncError='';if(current){const c=chats.find(x=>keyFor(x)===current.key);if(c)current.chat=c;}renderList();}catch(e){syncError=e.message;if(session)renderList();}finally{listBusy=false;$('#refresh-list').disabled=false;renderSync();}}
+async function loadList(){if(listBusy||!session)return;listBusy=true;const epoch=authEpoch;$('#refresh-list').disabled=true;if(!chats.length)renderList();try{const data=await api('/api/chats',{timeout:120000});if(epoch!==authEpoch)return;chats=[...chats.filter(c=>c.shared&&!data.some(x=>keyFor(x)===keyFor(c))),...data];reconcileReadBadges();lastSync=Date.now();syncError='';if(current){const c=chats.find(x=>keyFor(x)===current.key);if(c)current.chat=c;}renderList();}catch(e){syncError=e.message;if(session)renderList();}finally{listBusy=false;$('#refresh-list').disabled=false;renderSync();}}
 async function checkState(){if(stateBusy||!session)return;stateBusy=true;try{const data=await api('/api/state');connection=data.instance?.state||'unknown';}catch{connection='unknown';}finally{stateBusy=false;renderSync();}}
 function getState(c){const key=keyFor(c);let s=states.get(key);if(!s){s={key,chat:c,messages:new Map(),nodes:new Map(),days:new Map(),cursor:'',hasMore:false,initialized:false,loading:false,older:false,sending:false,scroll:0,atBottom:true,newCount:0,read:new Set(),visible:new Set(),readBusy:false,readFailed:false};states.set(key,s);}s.chat=c;return s;}
 function saveCurrent(){window.voiceUX?.leave();document.querySelectorAll('#messages audio,#messages video').forEach(m=>m.pause());if(!current)return;current.scroll=$('#msgs').scrollTop;current.atBottom=atBottom();drafts[current.key]=$('#txt').value;persistDrafts();current.visible.clear();readObserver.disconnect();}
@@ -94,7 +125,7 @@ async function loadChat(s=current,older=false){if(!s||!session||s.loading||s.old
   const active=current===s,bottom=active&&atBottom(),anchor=active?captureAnchor():null;
   const latestBefore=Math.max(0,...Array.from(s.messages.values()).map(m=>Number(m.ts)||0));
   const fresh=data.messages.filter(m=>!s.messages.has(m.id)&&Number(m.ts)>=latestBefore&&!m.fromMe).length;
-  mergeMessages(s,data.messages);if(!wasInitialized||older){s.cursor=data.cursor||'';s.hasMore=Boolean(data.hasMore);}if(data.number&&!String(data.number).endsWith('@lid'))s.chat.number=data.number;s.initialized=true;
+  mergeMessages(s,data.messages);reconcileReadBadges();if(!wasInitialized||older){s.cursor=data.cursor||'';s.hasMore=Boolean(data.hasMore);}if(data.number&&!String(data.number).endsWith('@lid'))s.chat.number=data.number;s.initialized=true;
   if(active){$('#chat-error').hidden=true;renderMessages(s);if(!wasInitialized||(!older&&bottom))$('#msgs').scrollTop=$('#msgs').scrollHeight;else restoreAnchor(anchor);if(!older&&!bottom&&wasInitialized)s.newCount+=fresh;updateJump();}
  }catch(e){if(current===s){if(e.status===410){s.cursor='';s.initialized=false;chatError('O histórico expirou. Atualize para recomeçar a paginação; as mensagens exibidas serão preservadas.');}else chatError(e.message);} }
  finally{s[older?'older':'loading']=false;if(current===s){$('#refresh-chat').disabled=false;$('#more').disabled=false;$('#more').textContent='Carregar anteriores';}}
@@ -197,7 +228,21 @@ async function sendMessage(){const s=current,text=$('#txt').value.trim();if(!s||
 }
 function updateJump(){if(!current)return;const bottom=atBottom();current.atBottom=bottom;if(bottom)current.newCount=0;$('#jump').hidden=bottom;$('#jump').textContent=current.newCount?`${current.newCount} nova${current.newCount===1?' mensagem':'s mensagens'} ↓`:'Ir para mensagens recentes ↓';}
 const readObserver=new IntersectionObserver(entries=>{if(!current||document.hidden)return;for(const e of entries){if(e.isIntersecting)current.visible.add(e.target.dataset.id);else current.visible.delete(e.target.dataset.id);}clearTimeout(readTimer);readTimer=setTimeout(flushRead,650);},{root:$('#msgs'),threshold:.2});
-async function flushRead(){const s=current;if(!s||!session||document.hidden||s.readBusy||s.readFailed)return;const ids=Array.from(s.visible).filter(id=>{const m=s.messages.get(id);return m&&!m.fromMe&&!s.read.has(id)&&!['READ','PLAYED',4,5].includes(m.status);}).slice(0,100);if(!ids.length)return;s.readBusy=true;try{const result=await post('/api/read',{jid:s.chat.jid,keys:ids.map(id=>{const m=s.messages.get(id);return {id,jid:m.jid||s.chat.jid,participant:m.participantJid||''};})});if(result.ok===false)throw new Error('Leitura ainda não sincronizada. Tente atualizar a conversa.');ids.forEach(id=>s.read.add(id));if(current===s)$('#read-state').textContent='Leitura sincronizada';loadList();}catch(e){s.readFailed=true;if(current===s){$('#read-state').textContent='Leitura ainda não sincronizada';chatError(e.message);}}finally{s.readBusy=false;}}
+async function flushRead(){
+ const s=current,epoch=authEpoch;if(!s||!session||document.hidden||s.readBusy||s.readFailed)return;
+ const messages=Array.from(s.visible).map(id=>s.messages.get(id)).filter(m=>m&&!m.fromMe&&!s.read.has(m.id)&&!readReceipts[readKey(m)]).slice(0,100);
+ if(!messages.length)return;s.readBusy=true;
+ try{
+  const result=await post('/api/read',{jid:s.chat.jid,keys:messages.map(m=>({id:m.id,jid:m.jid||s.chat.jid,participant:m.participantJid||''}))});
+  if(epoch!==authEpoch)return;
+  if(result.ok===false)throw new Error('Leitura ainda não sincronizada. Tente atualizar a conversa.');
+  messages.forEach(m=>{s.read.add(m.id);readReceipts[readKey(m)]=true;});
+  reconcileReadBadges();
+  if(current===s)$('#read-state').textContent='Leitura sincronizada';
+  loadList();
+ }catch(e){if(epoch!==authEpoch)return;s.readFailed=true;if(current===s){$('#read-state').textContent='Leitura ainda não sincronizada';chatError(e.message);}}
+ finally{s.readBusy=false;if(current===s&&!s.readFailed&&session){clearTimeout(readTimer);readTimer=setTimeout(flushRead,650);}}
+}
 function searchMessages(jump=true){if(!current)return;const q=fold($('#mq').value.trim()),s=current;for(const n of s.nodes.values())n.classList.remove('search-hit');searchMatches=q?Array.from(s.messages.values()).filter(m=>m.type!=='reaction'&&fold((m.text||'')+' '+(m.transcript||'')).includes(q)).sort((a,b)=>a.ts-b.ts).map(m=>s.nodes.get(m.id)).filter(n=>n?.isConnected):[];if(jump)matchIndex=searchMatches.length?0:-1;else matchIndex=Math.min(Math.max(0,matchIndex),searchMatches.length-1);$('#match-count').textContent=q?(searchMatches.length?`${matchIndex+1} de ${searchMatches.length}`:'Nenhum resultado'):'';$('#prev-match').disabled=$('#next-match').disabled=!searchMatches.length;if(matchIndex>=0){searchMatches[matchIndex].classList.add('search-hit');if(jump)searchMatches[matchIndex].scrollIntoView({block:'center'});}}
 function nextMatch(delta){if(!searchMatches.length)return;searchMatches[matchIndex]?.classList.remove('search-hit');matchIndex=(matchIndex+delta+searchMatches.length)%searchMatches.length;searchMatches[matchIndex].classList.add('search-hit');searchMatches[matchIndex].scrollIntoView({block:'center'});$('#match-count').textContent=`${matchIndex+1} de ${searchMatches.length}`;}
 let profileEpoch=0;
@@ -229,7 +274,7 @@ $('#txt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isC
 $('#toggle-message-search').onclick=()=>{$('#message-search').hidden=!$('#message-search').hidden;if(!$('#message-search').hidden)$('#mq').focus();};$('#close-message-search').onclick=()=>{$('#message-search').hidden=true;$('#mq').value='';searchMessages(false);$('#toggle-message-search').focus();};$('#mq').addEventListener('input',()=>searchMessages());$('#next-match').onclick=()=>nextMatch(1);$('#prev-match').onclick=()=>nextMatch(-1);
 $('#contact-details').onclick=showDetails;$('#copy-number').onclick=()=>current&&copy(current.chat.number||'');for(const [id,key]of[['favorite','favorite'],['pending','pending']])$('#'+id).onclick=()=>{if(!current)return;const p=preferences[current.key]||{};p[key]=!p[key];preferences[current.key]=p;persistPreferences();$('#details').close();renderList();toast(key==='pending'?(p.pending?'Conversa marcada como pendente.':'Pendência concluída.'):(p.favorite?'Adicionada às favoritas.':'Removida das favoritas.'));};
 $('#account').onclick=()=>$('#account-dialog').showModal();document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$('#'+b.dataset.close).close());$('#zoom-image').onclick=()=>{const zoomed=$('#full-image').classList.toggle('zoomed');$('#zoom-image').textContent=zoomed?'Ajustar à tela':'Ampliar';};
-$('#logout').onclick=async()=>{try{await post('/api/logout',{});window.voiceUX?.clear();drafts={};persistDrafts();states.clear();listNodes.clear();chats=[];current=null;$('#list').replaceChildren();$('#messages').replaceChildren();$('#txt').value='';$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;history.replaceState({},'');showLogin();}catch(e){toast(e.message);}};
+$('#logout').onclick=async()=>{try{await post('/api/logout',{});window.voiceUX?.clear();drafts={};persistDrafts();readReceipts={};readSnapshots={};persistReadState();states.clear();listNodes.clear();chats=[];current=null;$('#list').replaceChildren();$('#messages').replaceChildren();$('#txt').value='';$('#app').classList.remove('chat-open');$('#main').hidden=true;$('#empty').hidden=false;history.replaceState({},'');showLogin();}catch(e){toast(e.message);}};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&session){loadList();loadChat();checkState();flushRead();}});window.addEventListener('online',()=>{if(session){loadList();loadChat();checkState();}});window.addEventListener('offline',()=>{syncError='Sem conexão com a internet';renderSync();});
 window.addEventListener('pagehide',saveCurrent);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.querySelector('dialog[open]')&&current){if(!$('#message-search').hidden)$('#close-message-search').click();else $('#back').click();}});
