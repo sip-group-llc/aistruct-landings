@@ -221,7 +221,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.1"}
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.2"}
 
 
 @app.get("/api/profile")
@@ -665,7 +665,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.1"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.2"}
 
 
 @app.get("/", response_class=HTMLResponse)

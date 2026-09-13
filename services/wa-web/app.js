@@ -288,6 +288,21 @@ timelineResize.observe($('#messages'));timelineResize.observe($('#msgs'));
  };
 })();
 const voicePlayer=mediaControls($('#voice-preview'));voicePlayer.id='voice-preview-player';voicePlayer.hidden=true;
+// Dismiss only a gesture that starts and ends on the backdrop, not a drag
+// from the content. Reuse cancel guards (e.g. a print currently being sent).
+document.querySelectorAll('dialog').forEach(dialog=>{
+ let backdropPointer=null;
+ const outside=e=>{const r=dialog.getBoundingClientRect();return e.target===dialog&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom);};
+ dialog.addEventListener('pointerdown',e=>{backdropPointer=e.isPrimary&&e.button===0&&outside(e)?e.pointerId:null;});
+ dialog.addEventListener('pointerup',e=>{
+  const dismiss=backdropPointer===e.pointerId&&outside(e);backdropPointer=null;
+  if(!dismiss||!dialog.open)return;
+  e.preventDefault();
+  if(dialog.dispatchEvent(new Event('cancel',{cancelable:true})))dialog.close();
+ });
+ dialog.addEventListener('pointercancel',()=>{backdropPointer=null;});
+ dialog.addEventListener('close',()=>{backdropPointer=null;});
+});
 mediaControls($('#full-video'));
 $('#video-dialog').addEventListener('close',()=>{$('#full-video').pause();$('#full-video').removeAttribute('src');$('#full-video').load();});
 $('#video-fullscreen').onclick=()=>{const v=$('#full-video'),dialog=$('#video-dialog');if(dialog.requestFullscreen)dialog.requestFullscreen().catch(()=>toast('Tela cheia indisponível.'));else if(v.webkitEnterFullscreen)v.webkitEnterFullscreen();};
