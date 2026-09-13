@@ -178,6 +178,26 @@ def _body(msg: dict) -> tuple[str, str, dict]:
     if m.get("contactsArrayMessage"):
         contacts = [_contact(c) for c in m["contactsArrayMessage"].get("contacts", []) if isinstance(c, dict)]
         return "contact", ", ".join(c["name"] for c in contacts), {"contacts": contacts}
+    template = m.get("templateMessage") or {}
+    hydrated = template.get("hydratedTemplate") or template.get("hydratedFourRowTemplate") or {}
+    if isinstance(hydrated, dict) and hydrated:
+        parts = [hydrated.get(field) for field in ("hydratedTitleText", "hydratedContentText", "hydratedFooterText")]
+        parts = [part for part in parts if isinstance(part, str) and part.strip()]
+        labels = []
+        for button in hydrated.get("hydratedButtons") or []:
+            if not isinstance(button, dict):
+                continue
+            for field in ("quickReplyButton", "urlButton", "callButton"):
+                action = button.get(field) or {}
+                label = action.get("displayText") if isinstance(action, dict) else None
+                if isinstance(label, str) and label.strip():
+                    labels.append(label)
+        if labels:
+            parts.append("Opções da mensagem: " + " · ".join(labels))
+        if parts:
+            return "text", "\n\n".join(parts), {}
+    if "placeholderMessage" in m:
+        return "other", "O conteúdo desta mensagem não foi sincronizado pelo WhatsApp. Confira no aplicativo original.", {"kind": "placeholderMessage"}
     keys = [k for k in m if k != "messageContextInfo"]
     return "other", "", {"kind": keys[0] if keys else "?"}
 
@@ -248,7 +268,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.10",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.11",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -824,7 +844,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.10"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.11"}
 
 
 @app.get("/", response_class=HTMLResponse)

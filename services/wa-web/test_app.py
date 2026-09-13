@@ -27,6 +27,20 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    def test_commercial_template_content_and_missing_payload(self):
+        rec = record('synthetic@lid', 1, 1)
+        rec['message'] = {'templateMessage': {'hydratedTemplate': {
+            'hydratedTitleText': 'Aviso', 'hydratedContentText': 'Seu pedido chegou.',
+            'hydratedFooterText': 'Equipe', 'hydratedButtons': [
+                {'quickReplyButton': {'displayText': 'Confirmar', 'id': 'private-token'}}]}}}
+        result = wa._norm(rec)
+        self.assertEqual(result['type'], 'text')
+        self.assertEqual(result['text'], 'Aviso\n\nSeu pedido chegou.\n\nEquipe\n\nOpções da mensagem: Confirmar')
+        rec['message'] = {'placeholderMessage': {'type': 0}}
+        result = wa._norm(rec)
+        self.assertFalse(result['cacheable'])
+        self.assertIn('não foi sincronizado', result['text'])
+
     async def test_flags_import_preserves_remote_state_and_updates_conflict(self):
         with tempfile.TemporaryDirectory() as root, patch.object(wa,'_workspace',wa.Workspace(root)):
             imported=await self.client.post('/api/work-import-flags',json={'5511':{'favorite':True,'pending':True}})
