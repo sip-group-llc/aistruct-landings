@@ -119,7 +119,11 @@ BLING = BlingClient()
 # funciona em sessões SDK). Então o desconto é aplicado no preço que enviamos, e o
 # código do influencer vai em metadata.coupon p/ atribuição/comissão.
 # Override por env: INFLUENCER_COUPONS_JSON='{"ARTHURPC":5,...}'
-_DEFAULT_COUPONS = {"ARTHURPC": 5, "THIAGO": 5, "ISA": 5, "NATHAN": 5, "DIGAO": 5}
+_DEFAULT_COUPONS = {
+    "ARTHURPC": 5, "THIAGO": 5, "ISA": 5, "NATHAN": 5, "DIGAO": 5,
+    "KAKAU": 10, "BVELOSO": 10, "THIAGOC": 10,
+    "COSENZA10": 10, "RD10": 10,
+}
 
 
 def _parse_coupons() -> dict[str, int]:
