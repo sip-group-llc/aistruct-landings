@@ -25,6 +25,7 @@ from hashlib import sha256
 from pathlib import Path
 
 import httpx
+from storage import PersistentCache
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -39,6 +40,21 @@ GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.environ.get("GROQ_TRANSCRIPTION_MODEL", "whisper-large-v3")
 GROQ_LANGUAGE = os.environ.get("GROQ_TRANSCRIPTION_LANGUAGE", "").strip()
 COOKIE = "wa_session"
+_disk = PersistentCache(os.environ.get("WA_CACHE_DIR"), EVO + "|" + INST)
+_media_policy = OrderedDict()
+
+
+def _persistent_identity(jid, mid):
+    return jid + "|" + mid
+
+
+def _transcript_identity(jid, mid):
+    provider = "groq|" + GROQ_MODEL + "|" + GROQ_LANGUAGE if GROQ_KEY else "local|" + TR_URL
+    return _persistent_identity(jid, mid) + "|" + provider + "|v1"
+
+
+def _can_persist(jid, mid):
+    return _media_policy.get((jid, mid)) is True
 HTML = (Path(__file__).parent / "index.html").read_text(encoding="utf-8")
 
 app = FastAPI(title="wa-web")
@@ -180,6 +196,9 @@ def _norm(rec: dict) -> dict:
                     if isinstance(v, dict) and isinstance(v.get("contextInfo"), dict)), {})
     quoted = context.get("quotedMessage") or {}
     cacheable = cacheable and not context.get("expiration") and typ != "other"
+    _media_policy[(k.get("remoteJid") or "", k.get("id") or "")] = bool(cacheable)
+    while len(_media_policy) > 10000:
+        _media_policy.popitem(last=False)
     qtype, qtext, _ = _body({"message": quoted}) if quoted else ("", "", {})
     return {
         "id": k.get("id"),
@@ -194,8 +213,8 @@ def _norm(rec: dict) -> dict:
         "participantJid": k.get("participant") or "",
         "status": rec.get("status"),
         "quote": {"id": context.get("stanzaId"), "text": qtext, "type": qtype} if quoted else None,
-        "transcript": _trans.get(k.get("id")),
-        "transcription": _trans_meta.get(k.get("id")),
+        "transcript": _trans.get(_transcript_identity(k.get("remoteJid") or "", k.get("id") or "")),
+        "transcription": _trans_meta.get(_transcript_identity(k.get("remoteJid") or "", k.get("id") or "")),
         **extra,
     }
 
@@ -226,7 +245,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.4",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.5",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -365,6 +384,12 @@ async def messages(req: Request, jid: str, extra: str = "", cursor: str = ""):
         while len(_cursors) > 128:
             _cursors.popitem(last=False)
     output.sort(key=lambda m: (int(m["ts"]), m["id"]))
+    for msg in output:
+        if msg["cacheable"] and msg["type"] == "audio" and msg["transcript"] is None:
+            saved = await asyncio.to_thread(_disk.get, "transcript", _transcript_identity(msg["jid"], msg["id"]))
+            if saved is not None:
+                msg["transcript"] = saved["texto"]
+                msg["transcription"] = {k: v for k, v in saved.items() if k != "texto"}
     return {"messages": output, "cursor": next_cursor, "hasMore": has_more, "number": _number(jid, alt)}
 
 
@@ -372,14 +397,22 @@ _media: OrderedDict[str, tuple[str, bytes]] = OrderedDict()
 
 
 async def _fetch_media(jid: str, mid: str) -> tuple[str, bytes]:
-    if mid in _media:
-        return _media[mid]
+    identity = _persistent_identity(jid, mid)
+    if _can_persist(jid, mid) and identity in _media:
+        _media.move_to_end(identity)
+        return _media[identity]
+    if _can_persist(jid, mid):
+        saved = await asyncio.to_thread(_disk.get, "media", identity)
+        if saved is not None:
+            return saved
     d = await _post(f"/chat/getBase64FromMediaMessage/{INST}",
                     {"message": {"key": {"id": mid, "remoteJid": jid}}, "convertToMp4": False})
     mime = d.get("mimetype") or "application/octet-stream"
     raw = base64.b64decode(d["base64"])
-    _media[mid] = (mime, raw)
-    while len(_media) > 200:  # ponytail: cache em memória ~200 mídias; Redis se virar gargalo
+    if _can_persist(jid, mid):
+        await asyncio.to_thread(_disk.put, "media", identity, (mime, raw))
+        _media[identity] = (mime, raw)
+    while sum(len(value[1]) for value in _media.values()) > 64 * 1024**2 or len(_media) > 200:
         _media.popitem(last=False)
     return mime, raw
 
@@ -486,10 +519,6 @@ async def _send_voice(raw: bytes, number: str):
     data = await _post(f"/message/sendWhatsAppAudio/{INST}",
                        {"number": number, "audio": base64.b64encode(encoded).decode(), "encoding": False})
     mid = (data.get("key") or {}).get("id")
-    if mid:
-        _media[mid] = ("audio/ogg", encoded)
-        while len(_media) > 200:
-            _media.popitem(last=False)
     return {"id": mid, "status": data.get("status")}
 
 
@@ -638,8 +667,11 @@ async def _transcribe_message(jid: str, mid: str):
     async with _trans_slots:
         mime, raw = await _fetch_media(jid, mid)
         result = await _groq_transcribe(mime, raw) if GROQ_KEY else await _legacy_transcribe(mid, mime, raw)
-        _trans[mid] = result["texto"]
-        _trans_meta[mid] = {k: v for k, v in result.items() if k != "texto"}
+        if _can_persist(jid, mid):
+            await asyncio.to_thread(_disk.put, "transcript", _transcript_identity(jid, mid), result)
+        identity = _transcript_identity(jid, mid)
+        _trans[identity] = result["texto"]
+        _trans_meta[identity] = {k: v for k, v in result.items() if k != "texto"}
         while len(_trans) > 1000:
             removed, _ = _trans.popitem(last=False)
             _trans_meta.pop(removed, None)
@@ -655,9 +687,14 @@ async def transcribe(req: Request):
     jid, mid = str(body.get("jid") or ""), str(body.get("id") or "")
     if not jid or not mid or len(jid) > 150 or len(mid) > 150:
         raise HTTPException(400, "Identificação do áudio inválida.")
-    if mid in _trans:
-        return {"texto": _trans[mid], **_trans_meta.get(mid, {}), "cached": True}
+    identity = _transcript_identity(jid, mid)
+    if identity in _trans:
+        return {"texto": _trans[identity], **_trans_meta.get(identity, {}), "cached": True}
     key = (jid, mid)
+    if _can_persist(jid, mid):
+        saved = await asyncio.to_thread(_disk.get, "transcript", _transcript_identity(jid, mid))
+        if saved is not None:
+            return {**saved, "cached": True}
     task = _trans_tasks.get(key)
     if task is None:
         if len(_trans_tasks) >= 32:
@@ -675,7 +712,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.4"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.5"}
 
 
 @app.get("/", response_class=HTMLResponse)

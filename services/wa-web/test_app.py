@@ -1,10 +1,12 @@
 """Regression tests with synthetic records; never contact Evolution or send messages."""
 import asyncio
+import base64
 import importlib.util
 import os
 import io
 import shutil
 import wave
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -25,6 +27,37 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disk_media_recovers_without_network_and_respects_policy(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = wa.PersistentCache(root, 'test')
+            jid, mid = 'disk@s.whatsapp.net', 'disk-message'
+            wa._media_policy[(jid, mid)] = True
+            wa._media.clear()
+            calls = []
+            async def fetch(*args):
+                calls.append(args)
+                return {'mimetype': 'audio/ogg', 'base64': 'YWJj'}
+            with patch.object(wa, '_disk', store), patch.object(wa, '_post', fetch):
+                self.assertEqual(await wa._fetch_media(jid, mid), ('audio/ogg', b'abc'))
+                wa._media.clear()
+                self.assertEqual(await wa._fetch_media(jid, mid), ('audio/ogg', b'abc'))
+                self.assertEqual(len(calls), 1)
+                wa._media_policy[(jid, mid)] = False
+                await wa._fetch_media(jid, mid)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(len(wa._media), 0)
+
+    async def test_disk_transcript_recovers_without_provider_call(self):
+        with tempfile.TemporaryDirectory() as root:
+            jid, mid = 'disk@s.whatsapp.net', 'saved-transcript'
+            wa._media_policy[(jid, mid)] = True
+            with patch.object(wa, 'GROQ_KEY', 'synthetic'), patch.object(wa, '_disk', wa.PersistentCache(root, 'test')):
+                wa._disk.put('transcript', wa._transcript_identity(jid, mid), {'texto': 'persistido', 'segments': []})
+                response = await self.client.post('/api/transcribe', json={'jid': jid, 'id': mid})
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()['cached'])
+                self.assertEqual(response.json()['texto'], 'persistido')
+
     async def test_cache_scope_is_private_and_content_restrictions_survive_normalization(self):
         info=(await self.client.get('/api/session')).json()
         self.assertEqual(len(info['cacheScope']),64)
@@ -197,7 +230,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(a.status_code,200);self.assertEqual(a.json(),b.json());self.assertEqual(len(calls),1)
             cached=(await self.client.post('/api/transcribe',json=payload)).json()
             self.assertTrue(cached['cached']);self.assertEqual(len(calls),1)
-            self.assertEqual(wa._norm({'key':{'id':'voice-test'},'message':{'audioMessage':{}}})['transcription']['model'],'whisper-large-v3')
+            self.assertEqual(wa._norm({'key':{'id':'voice-test','remoteJid':'test@lid'},'message':{'audioMessage':{}}})['transcription']['model'],'whisper-large-v3')
             self.client.cookies.clear()
             self.assertEqual((await self.client.post('/api/transcribe',json=payload)).status_code,401)
 
@@ -230,9 +263,9 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.status_code,200,result.text)
         self.assertIn('/message/sendWhatsAppAudio/',calls[0][0])
         self.assertFalse(calls[0][1]['encoding'])
-        self.assertEqual(wa._media['encoded-audio'][0],'audio/ogg')
-        self.assertTrue(wa._media['encoded-audio'][1].startswith(b'OggS'))
-        self.assertIn(b'OpusHead',wa._media['encoded-audio'][1])
+        encoded = base64.b64decode(calls[0][1]['audio'])
+        self.assertTrue(encoded.startswith(b'OggS'))
+        self.assertIn(b'OpusHead', encoded)
         with self.assertRaises(wa.HTTPException):await wa._voice_ogg(b'invalid audio')
 
     @unittest.skipUnless(shutil.which('ffmpeg'), 'ffmpeg required for the duration boundary test')
@@ -319,7 +352,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         rec=record('a@lid',1,1000)
         rec['status']='READ';rec['message']={'ephemeralMessage':{'message':{'extendedTextMessage':{
             'text':'Reply','contextInfo':{'stanzaId':'q','quotedMessage':{'conversation':'Original'}}}}}}
-        wa._trans[rec['key']['id']]='Transcript'
+        wa._trans[wa._transcript_identity(rec['key']['remoteJid'], rec['key']['id'])]='Transcript'
         msg=wa._norm(rec)
         self.assertEqual(msg['text'],'Reply');self.assertEqual(msg['quote']['text'],'Original')
         self.assertEqual(msg['status'],'READ');self.assertEqual(msg['transcript'],'Transcript')
