@@ -331,7 +331,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.15",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.16",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -358,6 +358,64 @@ async def profile(req: Request, number: str):
         except (HTTPException, asyncio.TimeoutError):
             result['partial'] = True
     return result
+
+
+@app.get('/api/me')
+async def my_profile(req: Request):
+    _need(req)
+    own = await _post(f'/chat/fetchProfile/{INST}', {})
+    number = str(own.get('wuid') or '').split('@')[0].split(':')[0]
+    if not re.fullmatch(r'[0-9]{5,20}', number):
+        raise HTTPException(502, 'Não foi possível identificar seu perfil. Tente atualizar.')
+    details = await profile(req, number)
+    name = own.get('name') or details['name']
+    try:
+        response = await evo.get('/instance/fetchInstances', params={'instanceName': INST}, timeout=20)
+        response.raise_for_status()
+        records = response.json()
+        if isinstance(records, list):
+            for record in records:
+                item = record.get('instance', record)
+                if item.get('name', item.get('instanceName')) == INST:
+                    name = item.get('profileName') or name
+    except (httpx.HTTPError, ValueError, TypeError):
+        pass
+    return {'name': name, 'number': number, 'about': details['about'], 'picture': details['picture']}
+
+
+@app.post('/api/me')
+async def update_my_profile(req: Request):
+    _need(req)
+    body = await req.json()
+    if not isinstance(body, dict) or set(body) != {'field', 'value'}:
+        raise HTTPException(400, 'Altere um campo por vez.')
+    field, value = body['field'], body['value']
+    if field not in ('name', 'about') or not isinstance(value, str):
+        raise HTTPException(400, 'Campo inválido.')
+    value = value.strip()
+    if not value or len(value) > (25 if field == 'name' else 139):
+        raise HTTPException(400, 'Nome: 1 a 25 caracteres. Recado: 1 a 139 caracteres.')
+    path, key = ('updateProfileName', 'name') if field == 'name' else ('updateProfileStatus', 'status')
+    result = await _post(f'/chat/{path}/{INST}', {key: value})
+    if result.get('update') != 'success':
+        raise HTTPException(502, 'A alteração não foi confirmada. Atualize seu perfil antes de tentar novamente.')
+    return {'ok': True, 'field': field, 'value': value}
+
+
+@app.post('/api/me/picture')
+async def update_my_picture(req: Request):
+    _need(req)
+    raw = bytearray()
+    async for chunk in req.stream():
+        if len(raw)+len(chunk) > 5*1024*1024:
+            raise HTTPException(413, 'A foto deve ter até 5 MB.')
+        raw.extend(chunk)
+    if not (raw.startswith(b'\x89PNG\r\n\x1a\n') or raw.startswith(b'\xff\xd8\xff')):
+        raise HTTPException(415, 'Escolha uma foto PNG ou JPEG.')
+    result = await _post(f'/chat/updateProfilePicture/{INST}', {'picture': base64.b64encode(raw).decode()})
+    if result.get('update') != 'success':
+        raise HTTPException(502, 'A alteração da foto não foi confirmada. Atualize seu perfil.')
+    return {'ok': True}
 
 
 @app.get("/api/chats")
@@ -980,7 +1038,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.15"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.16"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1000,7 +1058,7 @@ def stylesheet():
 
 @app.get("/{asset}")
 def app_asset(asset: str):
-    public_assets = {"cache.js": "application/javascript", "voice.js": "application/javascript", "pwa.js": "application/javascript",
+    public_assets = {"profile.js": "application/javascript", "cache.js": "application/javascript", "voice.js": "application/javascript", "pwa.js": "application/javascript",
                      "sw.js": "application/javascript", "manifest.webmanifest": "application/manifest+json",
                      "icon-192.png": "image/png", "icon-512.png": "image/png", "apple-touch-icon.png": "image/png",
                      "offline.html": "text/html"}

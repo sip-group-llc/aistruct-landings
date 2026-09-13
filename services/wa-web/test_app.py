@@ -27,6 +27,32 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_own_profile_read_uses_own_number_and_filters_metadata(self):
+        from unittest.mock import AsyncMock
+        own={'wuid':'5511999998888:1@s.whatsapp.net'}
+        detail={'name':'Nome','status':{'status':'Recado'},'picture':'https://example.com/photo.jpg'}
+        response=httpx.Response(200,json=[{'name':wa.INST,'profileName':'Meu nome','token':'must-not-leak'}],request=httpx.Request('GET','https://evolution.invalid'))
+        with patch.object(wa,'_post',AsyncMock(side_effect=[own,detail])) as post,patch.object(wa.evo,'get',AsyncMock(return_value=response)):
+            result=await self.client.get('/api/me');self.assertEqual(result.status_code,200)
+            self.assertEqual(result.json(),{'name':'Meu nome','number':'5511999998888','about':'Recado','picture':'https://example.com/photo.jpg'})
+            self.assertEqual(post.call_args.args[1],{'number':'5511999998888'})
+
+    async def test_own_profile_updates_only_selected_field_and_rejects_invalid_inputs(self):
+        from unittest.mock import AsyncMock
+        with patch.object(wa,'_post',AsyncMock(return_value={'update':'success'})) as post:
+            for field,key,path in [('name','name','updateProfileName'),('about','status','updateProfileStatus')]:
+                result=await self.client.post('/api/me',json={'field':field,'value':' Novo valor '});self.assertEqual(result.status_code,200)
+                self.assertEqual(post.call_args.args,(f'/chat/{path}/{wa.INST}',{key:'Novo valor'}))
+            count=post.call_count
+            for body in [{'field':'number','value':'5511'},{'field':'name','value':'x'*26},{'field':'about','value':''},{'field':'name','value':'Nome','number':'other'}]:
+                self.assertEqual((await self.client.post('/api/me',json=body)).status_code,400)
+            self.assertEqual(post.call_count,count)
+            self.assertEqual((await self.client.post('/api/me/picture',content=b'not an image')).status_code,415)
+            self.assertEqual((await self.client.post('/api/me/picture',content=b'\x89PNG\r\n\x1a\nsynthetic')).status_code,200)
+            self.assertEqual(post.call_args.args[0],f'/chat/updateProfilePicture/{wa.INST}')
+            self.client.cookies.clear();self.assertEqual((await self.client.get('/api/me')).status_code,401)
+            self.assertEqual((await self.client.post('/api/me',json={'field':'name','value':'Nome'})).status_code,401)
+
     async def test_push_routes_auth_storage_and_read_receipts(self):
         from test_push import subscription
         with tempfile.TemporaryDirectory() as root, patch.object(wa, '_push', wa.PushStore(root, 'test')), patch.object(wa._disk, 'root', Path(root)):

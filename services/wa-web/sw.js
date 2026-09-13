@@ -1,7 +1,7 @@
 // Public shell only. API responses, media and credentials never enter CacheStorage.
-const CACHE='wa-public-v13',VERSION='20260913-15';
+const CACHE='wa-public-v14',VERSION='20260913-16';
 const SHELL=['/','/offline.html','/manifest.webmanifest','/icon-192.png','/icon-512.png','/apple-touch-icon.png',
- ...['style.css','cache.js','app.js','voice.js','pwa.js'].map(name=>'/'+name+'?v='+VERSION)];
+ ...['style.css','cache.js','app.js','voice.js','profile.js','pwa.js'].map(name=>'/'+name+'?v='+VERSION)];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
  const cache=await caches.open(CACHE);
  await cache.addAll(SHELL.map(url=>new Request(url,{cache:'reload'})));
