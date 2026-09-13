@@ -19,6 +19,7 @@
   $('#voice-recipient').textContent = current.chat.name || current.chat.number;
   $('#voice-live').hidden = !active;
   $('#voice-preview').hidden = !draft;
+  $('#voice-preview-player').hidden = !draft;
   $('#voice-pause').hidden = !active;
   $('#voice-stop').hidden = !active;
   $('#voice-send').hidden = !draft;
@@ -35,6 +36,7 @@
    $('#voice-status').textContent = paused ? 'Pausado' : 'Gravando';
   }
   if (draft && $('#voice-preview').getAttribute('src') !== draft.url) {
+   $('#voice-preview').dataset.duration = draft.seconds || 0;
    $('#voice-preview').src = draft.url;
    $('#voice-download').href = draft.url;
    $('#voice-download').download = draft.name || 'meu-audio.' + (draft.blob.type.includes('mp4') ? 'm4a' : draft.blob.type.includes('ogg') ? 'ogg' : 'webm');

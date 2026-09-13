@@ -221,7 +221,32 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.12.6"}
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.1"}
+
+
+@app.get("/api/profile")
+async def profile(req: Request, number: str):
+    _need(req)
+    if not re.fullmatch(r"[0-9]{5,20}(?:@(?:s\.whatsapp\.net|lid))?", number):
+        raise HTTPException(400, "Número de contato inválido.")
+    try:
+        data = await asyncio.wait_for(_post(f"/chat/fetchProfile/{INST}", {"number": number}), 25)
+    except (HTTPException, asyncio.TimeoutError):
+        raise HTTPException(502, "Não foi possível carregar o perfil. Tente novamente.")
+    about = data.get("status") or {}
+    result = {"name": data.get("name") or "", "picture": data.get("picture") or "",
+              "about": about.get("status", "") if isinstance(about, dict) else str(about),
+              "aboutUpdated": str(about.get("setAt") or "") if isinstance(about, dict) else "",
+              "business": bool(data.get("isBusiness")), "fields": {}, "partial": False}
+    if not str(result['picture']).startswith('https://'):
+        result['picture'] = ''
+    if result['business']:
+        try:
+            business = await asyncio.wait_for(_post(f"/chat/fetchBusinessProfile/{INST}", {"number": number}), 15)
+            result['fields'] = {k: business[k] for k in ('description','email','address','website','category','business_hours') if business.get(k)}
+        except (HTTPException, asyncio.TimeoutError):
+            result['partial'] = True
+    return result
 
 
 @app.get("/api/chats")
@@ -640,7 +665,7 @@ async def transcribe(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.12.6"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.1"}
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -25,6 +25,31 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_profile_fields_and_business_partial(self):
+        async def upstream(path, body):
+            self.assertEqual(body['number'],'5511999998888')
+            if 'fetchBusinessProfile' in path:
+                raise wa.HTTPException(502,'private upstream error')
+            return {'name':'Hugo','picture':'https://example.com/photo.jpg','status':{'status':'Olá','setAt':'2026-09-13'},'isBusiness':True,'secret':'must not leak'}
+        with patch.object(wa,'_post',upstream):
+            r=await self.client.get('/api/profile?number=5511999998888')
+            self.assertEqual(r.status_code,200)
+            self.assertEqual(r.json()['about'],'Olá')
+            self.assertTrue(r.json()['partial'])
+            self.assertNotIn('secret',r.text)
+
+    async def test_profile_privacy_auth_and_validation(self):
+        async def upstream(path,body):
+            return {'name':'','picture':'javascript:bad','status':None,'isBusiness':False}
+        with patch.object(wa,'_post',upstream):
+            r=await self.client.get('/api/profile?number=5511999998888')
+            self.assertEqual(r.json()['picture'],'')
+            self.assertEqual(r.json()['about'],'')
+            self.assertEqual(r.headers['cache-control'],'no-store')
+        self.assertEqual((await self.client.get('/api/profile?number=invalid')).status_code,400)
+        self.client.cookies.clear()
+        self.assertEqual((await self.client.get('/api/profile?number=5511999998888')).status_code,401)
+
     async def test_image_send_payload_and_deduplication(self):
         import base64
         png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT1sAAAAASUVORK5CYII=')
@@ -86,7 +111,7 @@ class AppTests(unittest.IsolatedAsyncioTestCase):
         login = await self.client.post('/api/login', json={"senha": "test-password"})
         self.assertEqual(login.status_code, 200)
         self.assertIn('Secure', login.headers['set-cookie'])
-        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.12.6')
+        self.assertEqual((await self.client.get('/api/session')).json()['version'], '2026.09.13.1')
         for asset in ('/', '/app.js', '/style.css'):
             self.assertEqual((await self.client.get(asset)).status_code, 200)
 
