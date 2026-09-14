@@ -280,6 +280,8 @@ def _norm(rec: dict) -> dict:
         content = wrapped
     context = next((v["contextInfo"] for v in content.values()
                     if isinstance(v, dict) and isinstance(v.get("contextInfo"), dict)), {})
+    if isinstance(rec.get('contextInfo'), dict):
+        context = {**rec['contextInfo'], **context}
     quoted = context.get("quotedMessage") or {}
     cacheable = cacheable and not context.get("expiration") and typ != "other"
     _media_policy[(k.get("remoteJid") or "", k.get("id") or "")] = bool(cacheable)
@@ -295,6 +297,7 @@ def _norm(rec: dict) -> dict:
         "participant": (k.get("participant") or "").split("@")[0],
         "type": typ,
         "text": txt,
+        "mentions": [j for j in context.get('mentionedJid', []) if isinstance(j, str)],
         "jid": k.get("remoteJid") or "",
         "participantJid": k.get("participant") or "",
         "status": rec.get("status"),
@@ -331,7 +334,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.14.19",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.14.20",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -360,6 +363,49 @@ async def profile(req: Request, number: str):
     return result
 
 
+_contact_names_cache = (0, {})
+_group_names_cache = {}
+
+
+async def mention_names(jid):
+    global _contact_names_cache
+    now = time.monotonic()
+    cached = _group_names_cache.get(jid)
+    if cached and now-cached[0] < 300:
+        return cached[1]
+    if now-_contact_names_cache[0] > 300:
+        contacts = await _post(f'/chat/findContacts/{INST}', {})
+        records = contacts if isinstance(contacts, list) else contacts.get('records', [])
+        names = {c['remoteJid']: str(c.get('pushName') or c.get('name')) for c in records
+                 if c.get('remoteJid') and (c.get('pushName') or c.get('name'))}
+        _contact_names_cache = (now, names)
+    names = dict(_contact_names_cache[1])
+    response = await evo.get(f'/group/findGroupInfos/{INST}', params={'groupJid': jid}, timeout=20)
+    response.raise_for_status()
+    for member in response.json().get('participants', []):
+        ident = str(member.get('id') or '')
+        phone = str(member.get('phoneNumber') or member.get('phone') or '')
+        if phone and '@' not in phone:
+            phone += '@s.whatsapp.net'
+        name = names.get(phone) or names.get(ident) or member.get('name') or member.get('pushName')
+        if name:
+            names[ident] = str(name)
+            if phone:
+                names[phone] = str(name)
+        elif phone:
+            names[ident] = phone.split('@')[0]  # Never display a LID as a telephone.
+    _group_names_cache[jid] = (now, names)
+    if len(_group_names_cache) > 128:
+        _group_names_cache.pop(next(iter(_group_names_cache)))
+    return names
+
+
+def resolve_mentions(messages, names):
+    for msg in messages:
+        labels = {j.split('@')[0]: names[j] for j in msg.get('mentions', []) if names.get(j)}
+        msg['displayText'] = re.sub(r'(?<![\w@])@(\d+)(?!\w)', lambda m: '@'+labels.get(m[1], m[1]), msg['text'])
+
+
 @app.get('/api/group')
 async def group_info(req: Request, jid: str):
     _need(req)
@@ -374,13 +420,17 @@ async def group_info(req: Request, jid: str):
     if not isinstance(data, dict) or not isinstance(data.get('participants'), list):
         raise HTTPException(502, 'A integração não retornou os integrantes deste grupo.')
     members = []
+    try:
+        known_names = await mention_names(jid)
+    except (HTTPException, httpx.HTTPError, ValueError, TypeError):
+        known_names = {}
     for item in data['participants']:
         if not isinstance(item, dict):
             continue
         ident = str(item.get('id') or '')
         number = str(item.get('phoneNumber') or item.get('phone') or (ident if ident.endswith('@s.whatsapp.net') else '')).split('@')[0]
         members.append({'id': ident, 'number': number if re.fullmatch(r'[0-9]{5,20}', number) else '',
-                        'name': str(item.get('name') or item.get('pushName') or ''),
+                        'name': str(item.get('name') or item.get('pushName') or known_names.get(ident) or ''),
                         'admin': item.get('admin') in ('admin', 'superadmin')})
     return {'name': str(data.get('subject') or ''), 'description': str(data.get('desc') or ''),
             'participants': members, 'size': len(members)}
@@ -590,6 +640,16 @@ async def messages(req: Request, jid: str, extra: str = "", cursor: str = ""):
         while len(_cursors) > 128:
             _cursors.popitem(last=False)
     output.sort(key=lambda m: (int(m["ts"]), m["id"]))
+    if jid.endswith('@g.us') and any(m.get('mentions') for m in output):
+        try:
+            names = await mention_names(jid)
+            for m in output:
+                if m.get('participantJid') and m.get('who'):
+                    if not names.get(m['participantJid']) or names[m['participantJid']].isdigit():
+                        names[m['participantJid']] = m['who']
+            resolve_mentions(output, names)
+        except (HTTPException, httpx.HTTPError, ValueError, TypeError):
+            pass  # Missing name lookup must not prevent reading the conversation.
     for msg in output:
         if msg["cacheable"] and msg["type"] == "audio" and msg["transcript"] is None:
             saved = await asyncio.to_thread(_disk.get, "transcript", _transcript_identity(msg["jid"], msg["id"]))
@@ -1079,7 +1139,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.14.19"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.14.20"}
 
 
 @app.get("/", response_class=HTMLResponse)

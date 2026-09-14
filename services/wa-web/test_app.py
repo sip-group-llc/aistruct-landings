@@ -27,6 +27,25 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    def test_mentions_preserve_original_and_replace_only_declared_complete_ids(self):
+        rec=record('12345@g.us',1,1)
+        rec['message']={'extendedTextMessage':{'text':'@123 falar com @456 e @1234', 'contextInfo':{'mentionedJid':['123@lid','456@lid']}}}
+        msg=wa._norm(rec)
+        wa.resolve_mentions([msg],{'123@lid':'Ana','456@lid':'Bruno'})
+        self.assertEqual(msg['displayText'],'@Ana falar com @Bruno e @1234')
+        self.assertEqual(msg['text'],'@123 falar com @456 e @1234')
+        rec['message']={'conversation':'@123 falar com @456'}
+        rec['contextInfo']={'mentionedJid':['123@lid','456@lid']}
+        msg=wa._norm(rec);wa.resolve_mentions([msg],{'123@lid':'Ana','456@lid':'Bruno'})
+        self.assertEqual(msg['displayText'],'@Ana falar com @Bruno')
+
+    async def test_mention_names_join_lid_and_phone_without_inventing_names(self):
+        from unittest.mock import AsyncMock
+        response=httpx.Response(200,json={'participants':[{'id':'123@lid','phoneNumber':'5511999991111@s.whatsapp.net'},{'id':'456@lid','phoneNumber':'5511999992222@s.whatsapp.net'}]},request=httpx.Request('GET','https://evolution.invalid'))
+        with patch.object(wa,'_contact_names_cache',(-10000,{})),patch.object(wa,'_group_names_cache',{}),patch.object(wa,'_post',AsyncMock(return_value=[{'remoteJid':'5511999991111@s.whatsapp.net','pushName':'Ana'}])),patch.object(wa.evo,'get',AsyncMock(return_value=response)):
+            names=await wa.mention_names('12345@g.us')
+            self.assertEqual(names['123@lid'],'Ana');self.assertEqual(names['456@lid'],'5511999992222')
+
     async def test_group_members_are_authenticated_and_filtered(self):
         from unittest.mock import AsyncMock
         response=httpx.Response(200,json={'subject':'Grupo','desc':'Descrição','participants':[{'id':'123@lid','phoneNumber':'5511999998888@s.whatsapp.net','name':'Ana','admin':'admin','secret':'hidden'},{'id':'456@lid','admin':None}]},request=httpx.Request('GET','https://evolution.invalid'))
