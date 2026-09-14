@@ -40,6 +40,7 @@ html,body{height:100%;margin:0;background:var(--bg);color:var(--txt);font:16px/1
 .body-text,.template-card .body-text{font-size:var(--message-size);line-height:1.4;font-weight:400;letter-spacing:normal}
 .m{padding:6px 9px 5px;border-radius:0 8px 8px 8px}.m.me{border-radius:8px 0 8px 8px}.m.grouped{border-radius:8px}
 .m .stamp{margin-top:2px}.transcript p{font-size:var(--message-size);line-height:1.4}
+.group-members{list-style:none;padding:0;margin:12px 0 0}.group-members li{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.group-members li>div{flex:1;min-width:0;overflow-wrap:anywhere}.group-members strong{display:block;font-size:14px}.group-members small{display:block;margin-top:3px}.group-members li>span{color:var(--acc);font-size:12px;flex:none}
 /* Reply stays reachable outside the bubble without reserving a blank row. */
 .m{max-width:min(82%,600px,calc(100% - 48px));margin-top:4px}
 .m .reply-actions{position:absolute;left:calc(100% + 4px);top:0;margin:0;height:44px}

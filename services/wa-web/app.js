@@ -211,7 +211,8 @@ async function loadChat(s=current,older=false){if(!s||!session||s.loading||s.old
  finally{s[older?'older':'loading']=false;if(current===s){$('#refresh-chat').disabled=false;$('#more').disabled=false;$('#more').textContent='Carregar anteriores';}}
 }
 function msgStatus(m){if(m.localStatus)return m.localStatus;const statuses={PENDING:'Enviada',SERVER_ACK:'Enviada',DELIVERY_ACK:'Entregue',READ:'Lida',PLAYED:'Reproduzida',ERROR:'Falha no envio',0:'Falha no envio',1:'Enviada',2:'Enviada',3:'Entregue',4:'Lida',5:'Reproduzida'};return statuses[m.status]||'';}
-function renderMessages(s){if(current!==s)return;const list=Array.from(s.messages.values()).sort((a,b)=>a.ts-b.ts||a.id.localeCompare(b.id)),nodes=[],reactions=new Map();let previous=null,lastDay='';
+function compareMessages(a,b){return a.ts-b.ts||(a.clientOrder||0)-(b.clientOrder||0)||a.id.localeCompare(b.id);}
+function renderMessages(s){if(current!==s)return;const list=Array.from(s.messages.values()).sort(compareMessages),nodes=[],reactions=new Map();let previous=null,lastDay='';
  for(const m of list){if(m.type==='reaction'&&m.to){const actor=m.fromMe?'me':m.participantJid||m.participant||m.who||m.id;const bucket=reactions.get(m.to)||new Map();bucket.set(actor,m.text);reactions.set(m.to,bucket);}}
  for(const m of list){if(m.type==='reaction'||m.type==='other'&&/protocol|album|senderKey/i.test(m.kind||''))continue;
   const day=dayKey(m.ts);if(day!==lastDay){let d=s.days.get(day);if(!d){d=document.createElement('div');d.className='day';s.days.set(day,d);}d.textContent=dayLabel(m.ts);nodes.push(d);lastDay=day;previous=null;}
@@ -303,14 +304,14 @@ async function transcribe(m,s,button){
 }
 
 async function copy(text){try{await navigator.clipboard.writeText(text);toast('Copiado.');}catch{toast('Não foi possível copiar. Selecione o texto para copiar manualmente.');}}
-function resizeComposer(){renderReply();const t=$('#txt');t.style.height='auto';t.style.height=Math.min(160,Math.max(46,t.scrollHeight))+'px';$('#send').disabled=!current||current.sending||!t.value.trim();$('#send').setAttribute('aria-label',current?.sending?'Enviando mensagem':'Enviar mensagem');$('#send .send-label').textContent=current?.sending?'Enviando…':'Enviar';window.voiceUX?.sync();}
-async function sendMessage(){const s=current,text=$('#txt').value.trim();if(!s||s.sending||!text||!session)return;
+function resizeComposer(){renderReply();const t=$('#txt');t.style.height='auto';t.style.height=Math.min(160,Math.max(46,t.scrollHeight))+'px';$('#send').disabled=!current||(current.sending&&!current.textPending)||!t.value.trim();$('#send').setAttribute('aria-label',(current?.sending&&!current?.textPending)?'Enviando mensagem':'Enviar mensagem');$('#send .send-label').textContent=(current?.sending&&!current?.textPending)?'Enviando…':'Enviar';window.voiceUX?.sync();}
+async function sendMessage(){const s=current,text=$('#txt').value.trim();if(!s||(s.sending&&!s.textPending)||!text||!session)return;
  if(localOnly){toast('Conecte-se para enviar. Seu rascunho continua salvo.');return;}
- s.sending=true;const reply=s.replyTo?{...s.replyTo}:null;const requestId=crypto.randomUUID(),localId='local-'+requestId;
- const m={id:localId,fromMe:true,ts:Math.floor(Date.now()/1000),type:'text',text,quote:reply?{id:reply.id,text:reply.text,type:reply.type}:null,localStatus:'Enviando…'};s.messages.set(localId,m);drafts[s.key]='';persistDrafts();$('#txt').value='';setReply(s,null);resizeComposer();renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;renderList();
- try{const result=await post('/api/send',{number:reply?.jid||s.chat.number||s.chat.jid,text,requestId,...(reply?{replyTo:{id:reply.id,jid:reply.jid}}:{})},{timeout:120000});if(!result.id){m.localStatus='Envio não confirmado';}else{s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(result.id,m);} }
- catch(e){if(!e.uncertain&&e.status){s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);if(!drafts[s.key]){drafts[s.key]=text;if(!s.replyTo)setReply(s,reply);if(current===s)$('#txt').value=text;persistDrafts();}}else m.localStatus='Envio não confirmado';if(current===s)chatError(e.uncertain?'O envio não foi confirmado. Verifique as mensagens recentes antes de enviar de novo.':e.message);}
- finally{s.sending=false;if(current===s){renderMessages(s);resizeComposer();$('#txt').focus({preventScroll:true});}renderList();if(session)loadChat(s);}
+ const epoch=authEpoch,previous=s.textQueue;let release;s.textQueue=new Promise(resolve=>release=resolve);s.textPending=(s.textPending||0)+1;s.sending=true;const reply=s.replyTo?{...s.replyTo}:null;const requestId=crypto.randomUUID(),localId='local-'+requestId;
+ const m={id:localId,clientOrder:s.sendSequence=(s.sendSequence||0)+1,fromMe:true,ts:Math.floor(Date.now()/1000),type:'text',text,quote:reply?{id:reply.id,text:reply.text,type:reply.type}:null,localStatus:'Enviando…'};s.messages.set(localId,m);drafts[s.key]='';persistDrafts();$('#txt').value='';setReply(s,null);resizeComposer();renderMessages(s);$('#msgs').scrollTop=$('#msgs').scrollHeight;renderList();$('#txt').focus({preventScroll:true});
+ try{if(previous)await previous;if(epoch!==authEpoch||!session)return;const result=await post('/api/send',{number:reply?.jid||s.chat.number||s.chat.jid,text,requestId,...(reply?{replyTo:{id:reply.id,jid:reply.jid}}:{})},{timeout:120000});if(epoch!==authEpoch)return;if(!result.id){m.localStatus='Envio não confirmado';}else{s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);m.id=result.id;m.localStatus='Enviada';m.status=result.status;s.messages.set(result.id,m);} }
+ catch(e){if(epoch!==authEpoch)return;if(!e.uncertain&&e.status){s.messages.delete(localId);s.nodes.get(localId)?.remove();s.nodes.delete(localId);if(!drafts[s.key]){drafts[s.key]=text;if(!s.replyTo)setReply(s,reply);if(current===s)$('#txt').value=text;persistDrafts();}}else m.localStatus='Envio não confirmado';if(current===s)chatError(e.uncertain?'O envio não foi confirmado. Verifique as mensagens recentes antes de enviar de novo.':e.message);}
+ finally{s.textPending--;s.sending=s.textPending>0;release();if(epoch===authEpoch){if(current===s){renderMessages(s);resizeComposer();}renderList();if(session)loadChat(s);}}
 }
 function updateJump(){if(!current)return;const s=current,bottom=atBottom();s.atBottom=bottom;
  const ids=s.newIds??=new Set();for(const id of ids){const m=s.messages?.get(id);if(bottom||s.read?.has(id)||(m&&readReceipts[readKey(m)]))ids.delete(id);}
@@ -341,8 +342,13 @@ let profileEpoch=0;
 async function loadProfile(s){
  const token=++profileEpoch,c=s.chat,box=$('#profile-content');
  $('#profile-avatar').replaceChildren(avatar(c));$('#profile-retry').hidden=true;
- box.textContent=c.group?'Grupo · '+c.name:'Carregando perfil…';
- if(c.group)return;
+ box.textContent=c.group?'Carregando integrantes…':'Carregando perfil…';
+ if(c.group){
+  try{const data=await api('/api/group?'+new URLSearchParams({jid:c.jid}),{timeout:45000});if(token!==profileEpoch||current!==s||!$('#details').open)return;
+   $('#detail-number').textContent=data.size+' integrantes';
+   box.innerHTML=(data.description?'<section><small>Descrição</small><p>'+esc(data.description)+'</p></section>':'')+'<section><h3>Integrantes ('+data.size+')</h3><ul class=group-members>'+data.participants.map(member=>{const known=chats.find(chat=>!chat.group&&member.number&&chat.number===member.number);const name=known?.name||member.name||phone({number:member.number})||'Integrante sem nome';return '<li><div><strong>'+esc(name)+'</strong>'+(member.number&&name!==phone({number:member.number})?'<small>'+esc(phone({number:member.number}))+'</small>':'')+'</div>'+(member.admin?'<span>Admin</span>':'')+'</li>';}).join('')+'</ul></section>';
+  }catch(e){if(token===profileEpoch&&current===s&&$('#details').open){box.textContent=e.message;$('#profile-retry').hidden=false;}}return;
+ }
  try{
   const data=await api('/api/profile?'+new URLSearchParams({number:c.number||c.jid}),{timeout:45000});
   if(token!==profileEpoch||current!==s||!$('#details').open)return;

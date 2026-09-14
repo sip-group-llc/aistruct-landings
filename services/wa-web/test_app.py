@@ -27,6 +27,17 @@ def record(jid, n, ts, from_me=False):
 
 
 class AppTests(unittest.IsolatedAsyncioTestCase):
+    async def test_group_members_are_authenticated_and_filtered(self):
+        from unittest.mock import AsyncMock
+        response=httpx.Response(200,json={'subject':'Grupo','desc':'Descrição','participants':[{'id':'123@lid','phoneNumber':'5511999998888@s.whatsapp.net','name':'Ana','admin':'admin','secret':'hidden'},{'id':'456@lid','admin':None}]},request=httpx.Request('GET','https://evolution.invalid'))
+        with patch.object(wa.evo,'get',AsyncMock(return_value=response)) as get:
+            r=await self.client.get('/api/group',params={'jid':'12345@g.us'});self.assertEqual(r.status_code,200)
+            self.assertEqual(r.json()['size'],2);self.assertEqual(r.json()['participants'][0],{'id':'123@lid','number':'5511999998888','name':'Ana','admin':True})
+            self.assertEqual(r.json()['participants'][1]['number'],'')
+            self.assertEqual(get.call_args.kwargs['params'],{'groupJid':'12345@g.us'})
+            self.assertEqual((await self.client.get('/api/group?jid=private')).status_code,400)
+            self.client.cookies.clear();self.assertEqual((await self.client.get('/api/group?jid=12345@g.us')).status_code,401)
+
     async def test_read_lid_uses_verified_phone_alias_and_requires_confirmation(self):
         from unittest.mock import AsyncMock
         with tempfile.TemporaryDirectory() as root:

@@ -331,7 +331,7 @@ async def state(req: Request):
 def session(req: Request):
     _need(req)
     return {"ok": True, "transcriber": bool(GROQ_KEY or TR_URL),
-            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.13.18",
+            "transcriptionModel": GROQ_MODEL if GROQ_KEY else "local", "version": "2026.09.14.19",
             "cacheScope": hmac.new(SECRET.encode(), ("cache:"+EVO+":"+INST).encode(), sha256).hexdigest()}
 
 
@@ -358,6 +358,32 @@ async def profile(req: Request, number: str):
         except (HTTPException, asyncio.TimeoutError):
             result['partial'] = True
     return result
+
+
+@app.get('/api/group')
+async def group_info(req: Request, jid: str):
+    _need(req)
+    if not re.fullmatch(r'[0-9-]{5,40}@g\.us', jid):
+        raise HTTPException(400, 'Grupo inválido.')
+    try:
+        response = await evo.get(f'/group/findGroupInfos/{INST}', params={'groupJid': jid}, timeout=40)
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(502, 'Não foi possível carregar os integrantes. Tente novamente.')
+    if not isinstance(data, dict) or not isinstance(data.get('participants'), list):
+        raise HTTPException(502, 'A integração não retornou os integrantes deste grupo.')
+    members = []
+    for item in data['participants']:
+        if not isinstance(item, dict):
+            continue
+        ident = str(item.get('id') or '')
+        number = str(item.get('phoneNumber') or item.get('phone') or (ident if ident.endswith('@s.whatsapp.net') else '')).split('@')[0]
+        members.append({'id': ident, 'number': number if re.fullmatch(r'[0-9]{5,20}', number) else '',
+                        'name': str(item.get('name') or item.get('pushName') or ''),
+                        'admin': item.get('admin') in ('admin', 'superadmin')})
+    return {'name': str(data.get('subject') or ''), 'description': str(data.get('desc') or ''),
+            'participants': members, 'size': len(members)}
 
 
 @app.get('/api/me')
@@ -1053,7 +1079,7 @@ async def work_save(req: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.13.18"}
+    return {"ok": True, "instance": INST, "transcriber": bool(GROQ_KEY or TR_URL), "version": "2026.09.14.19"}
 
 
 @app.get("/", response_class=HTMLResponse)
