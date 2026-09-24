@@ -1,6 +1,6 @@
 /* HYU — Cupom de influencer por link
  * Abrir hyudrinks.com/ARTHURPC (ou /THIAGO /ISA /NATHAN /DIGAO /KAKAU /BVELOSO,
- * /THIAGOC, /COSENZA10 ou /RD10) aplica o desconto
+ * /THIAGOC, /COSENZA10, /RD10 ou /WOLFZ) aplica o desconto
  * em TODO o site: banner no topo + preços riscados + total do carrinho descontado.
  * O desconto REAL é aplicado no bridge (hyu-cart) no unitAmount — aqui só refletimos
  * visualmente e injetamos o `coupon` no POST /checkout. Validação final = bridge.
@@ -12,7 +12,7 @@
   // Cupons de influencer. Os cinco originais seguem em 5%; os demais usam 10%.
   var COUPONS = { ARTHURPC: 5, THIAGO: 5, ISA: 5, NATHAN: 5, DIGAO: 5,
                   KAKAU: 10, BVELOSO: 10, THIAGOC: 10,
-                  COSENZA10: 10, RD10: 10 };
+                  COSENZA10: 10, RD10: 10, WOLFZ: 10 };
   var KEY = "hyu_coupon";
   var PRICE_SRC = "R\\$\\s?\\d{1,3}(?:\\.\\d{3})*,\\d{2}";
 
