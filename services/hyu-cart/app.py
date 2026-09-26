@@ -12,8 +12,10 @@ POST /checkout         <- carrinho {items:[{flavor,tier,qty}|{combo,qty}], meta}
                           + fluxo completo: {customer, address, shipping} -> frete embutido
                           no unitAmount + pedido completo salvo (dados p/ NF-e no Bling)
 GET  /session/{id}     <- status do pedido (pro obrigado)
-POST /webhook/paggins  <- eventos Paggins (assinatura HMAC) -> marca orders/pedidos pagos
-                          -> dispara criacao do pedido de venda no Bling (bling.py)
+POST /webhook/paggins  <- eventos Paggins (order.paid; assinatura t=,v1= HMAC-SHA256,
+                          invalida = 401; idempotente por data.orderId/delivery id)
+                          -> marca orders/pedidos pagos -> pedido de venda no Bling (bling.py)
+                          Ref: guia integracao-paggins-ecommerce.md (25/09/2026)
 GET  /login /logout    <- login do painel (cookie HMAC 7d; senha LEADS_PASSWORD)
 GET  /pedidos          <- painel HTML dos COMPRADORES (cookie ou Basic) + status Bling
                           (aba "Aguardando" = carrinho abandonado com dados completos;
@@ -787,14 +789,27 @@ async def get_session(session_id: str):
 
 
 def _webhook_verified(raw: bytes, sig: str) -> bool:
-    """Confere a assinatura HMAC-SHA256 tentando variações de chave/payload
-    (com/sem prefixo whsec_, raw vs JSON compacto) — o esquema exato é confirmado
-    no 1º webhook real."""
+    """Confere a assinatura do webhook Paggins.
+
+    Formato oficial (guia integracao-paggins-ecommerce.md, §5, validado 25/09/2026):
+      X-Paggins-Signature: t=<unix>,v1=<hex>
+      v1 = HMAC-SHA256(secret, f"{t}.{corpo_bruto}")   — rejeita |now - t| > 5 min
+    Fallback legado: header = hex puro do HMAC do corpo (com/sem prefixo whsec_)."""
     if not (PAGGINS_WEBHOOK_SECRET and sig):
         return False
-    keys = {PAGGINS_WEBHOOK_SECRET}
+    keys = [PAGGINS_WEBHOOK_SECRET]
     if "_" in PAGGINS_WEBHOOK_SECRET:
-        keys.add(PAGGINS_WEBHOOK_SECRET.split("_", 1)[1])
+        keys.append(PAGGINS_WEBHOOK_SECRET.split("_", 1)[1])
+    m_t = re.search(r"t=(\d+)", sig)
+    m_v1 = re.search(r"v1=([a-fA-F0-9]{64})", sig)
+    if m_t and m_v1:
+        t, v1 = m_t.group(1), m_v1.group(1).lower()
+        if abs(time.time() - int(t)) > 300:
+            return False
+        signed = t.encode() + b"." + raw
+        return any(hmac.compare_digest(
+            hmac.new(k.encode(), signed, hashlib.sha256).hexdigest(), v1) for k in keys)
+    # legado (esquema antigo, sem timestamp)
     bodies = {raw}
     try:
         bodies.add(json.dumps(json.loads(raw), separators=(",", ":")).encode())
@@ -809,50 +824,134 @@ def _webhook_verified(raw: bytes, sig: str) -> bool:
 
 @app.post("/webhook/paggins")
 async def paggins_webhook(request: Request):
-    """Recebe eventos da Paggins e marca pedidos pagos. Verifica a assinatura HMAC
-    mas NÃO descarta em mismatch — registra `verified` e processa mesmo assim, pra
-    não perder pedido caso o esquema de assinatura difira (apertar após o 1º real)."""
+    """Recebe eventos da Paggins e marca pedidos pagos.
+
+    Assinatura (X-Paggins-Signature, esquema oficial t=,v1= — ver _webhook_verified):
+    inválida → 401 e NÃO processa (guia §5). Sem PAGGINS_WEBHOOK_SECRET configurado
+    o serviço aceita sem verificar (loga WARNING) — só pra ambiente de dev."""
     raw = await request.body()
     STATS["webhook_received"] += 1
     verified = _webhook_verified(raw, request.headers.get("x-paggins-signature", ""))
     if not verified:
         STATS["webhook_bad_sig"] += 1
+        if PAGGINS_WEBHOOK_SECRET:
+            log.warning("webhook Paggins REJEITADO (assinatura inválida) delivery=%s event=%s",
+                        request.headers.get("x-paggins-delivery-id", "?"),
+                        request.headers.get("x-paggins-event", "?"))
+            raise HTTPException(401, "assinatura invalida")
+        log.warning("webhook Paggins sem PAGGINS_WEBHOOK_SECRET — aceito SEM verificar")
     try:
         ev = json.loads(raw or b"{}")
     except Exception:
         raise HTTPException(400, "JSON invalido")
     event = ev.get("event") or ev.get("type") or ""
-    sid = ev.get("sessionId") or ev.get("session_id") or ""
-    PAID = {"checkout.session.completed", "payment.succeeded", "order.fulfilled"}
-    if event in PAID:
-        pay = ev.get("payment") or {}
-        order_id = ev.get("orderId") or ev.get("externalOrderId") or ""
-        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        pedido_id = None
+    # formato oficial (guia §5): envelope {id, event, created_at, data:{...}}.
+    # Formato legado (chaves na raiz) segue aceito.
+    data = ev.get("data") if isinstance(ev.get("data"), dict) else ev
+    sid = (data.get("checkoutSessionId") or data.get("sdkSessionId")
+           or ev.get("sessionId") or ev.get("session_id") or "")
+    # nosso order_id (externalOrderId da sessão). Se a Paggins não devolver, cai
+    # pro ?ref= da successUrl (guia: "case por externalOrderId ou conversionData.successUrl")
+    order_id = str(data.get("externalOrderId") or ev.get("externalOrderId") or "")
+    if not order_id:
+        m_ref = re.search(r"[?&]ref=([A-Za-z0-9_-]+)",
+                          str((data.get("conversionData") or {}).get("successUrl") or ""))
+        order_id = m_ref.group(1) if m_ref else ""
+    paggins_order = str(data.get("orderId") or "")          # id do pedido NA Paggins
+    delivery_id = str(ev.get("id") or request.headers.get("x-paggins-delivery-id") or "")
+    PAID = {"order.paid", "checkout.session.completed", "payment.succeeded", "order.fulfilled"}
+    REVIEW = ("refund", "chargeback", "dispute")
+    if any(k in event.lower() for k in REVIEW):
+        log.warning("webhook REVISAO: %s session=%s order=%s paggins_order=%s",
+                    event, sid, order_id, paggins_order)
         conn = _db()
         try:
             conn.execute(
                 "INSERT INTO orders (ts, session_id, order_id, event, status, amount_cents, verified, payload) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (ts, sid, order_id, event, "paid", pay.get("amount"), int(verified),
+                (datetime.now(timezone.utc).isoformat(timespec="seconds"), sid, order_id,
+                 event, "review", None, int(verified), json.dumps(ev, ensure_ascii=False)[:4000]))
+            conn.commit()
+        finally:
+            conn.close()
+        return {"received": True}
+    if event in PAID:
+        # valor pago: no webhook vem em UNIDADES da moeda (37 = R$ 37,00), não centavos
+        amount_cents: int | None = None
+        for k in ("effectiveAmount", "totalAmount"):
+            v = data.get(k)
+            if isinstance(v, (int, float)):
+                amount_cents = int(round(float(v) * 100))
+                break
+        if amount_cents is None:
+            pay = data.get("payment") or ev.get("payment") or {}
+            if isinstance(pay.get("amount"), (int, float)):
+                amount_cents = int(pay["amount"])   # legado: já em centavos
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        pedido_id = None
+        conn = _db()
+        try:
+            # idempotência: a Paggins reenvia até 5x — mesmo pedido/entrega já pago → 200 e nada
+            dup = None
+            if paggins_order:
+                dup = conn.execute(
+                    "SELECT id FROM orders WHERE status='paid' AND payload LIKE ? LIMIT 1",
+                    (f'%"orderId": "{paggins_order}"%',)).fetchone()
+            if dup is None and delivery_id:
+                dup = conn.execute(
+                    "SELECT id FROM orders WHERE status='paid' AND payload LIKE ? LIMIT 1",
+                    (f'%"id": "{delivery_id}"%',)).fetchone()
+            if dup is None and sid:
+                dup = conn.execute(
+                    "SELECT id FROM orders WHERE status='paid' AND session_id=? LIMIT 1",
+                    (sid,)).fetchone()
+            if dup:
+                log.info("webhook DUPLICADO ignorado: %s session=%s paggins_order=%s",
+                         event, sid, paggins_order)
+                return {"received": True, "duplicate": True}
+            conn.execute(
+                "INSERT INTO orders (ts, session_id, order_id, event, status, amount_cents, verified, payload) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (ts, sid, order_id, event, "paid", amount_cents, int(verified),
                  json.dumps(ev, ensure_ascii=False)[:4000]))
+            row = None
             if sid:
                 row = conn.execute(
-                    "SELECT id FROM pedidos WHERE session_id=? ORDER BY id DESC LIMIT 1",
+                    "SELECT id, session_id FROM pedidos WHERE session_id=? ORDER BY id DESC LIMIT 1",
                     (sid,)).fetchone()
-                if row:
-                    pedido_id = row[0]
-                    conn.execute(
-                        "UPDATE pedidos SET status='paid', paid_ts=? WHERE id=?",
-                        (ts, pedido_id))
+            if row is None and order_id:
+                row = conn.execute(
+                    "SELECT id, session_id FROM pedidos WHERE order_id=? ORDER BY id DESC LIMIT 1",
+                    (order_id,)).fetchone()
+            if row:
+                pedido_id = row[0]
+                sid = sid or (row[1] or "")
+                conn.execute(
+                    "UPDATE pedidos SET status='paid', paid_ts=? WHERE id=?",
+                    (ts, pedido_id))
+                # o webhook já traz CPF/telefone do comprador (data.customer) —
+                # completa o que o passo-1 do site não coleta (NF-e no Bling)
+                wc = data.get("customer") or {}
+                doc = re.sub(r"\D", "", str(wc.get("document") or ""))[:14]
+                tel = re.sub(r"\D", "", str(wc.get("phoneNumber") or wc.get("phone") or ""))[:13]
+                if doc:
+                    conn.execute("UPDATE pedidos SET document=? WHERE id=? AND "
+                                 "(document IS NULL OR document='')", (doc, pedido_id))
+                if tel:
+                    conn.execute("UPDATE pedidos SET phone=? WHERE id=? AND "
+                                 "(phone IS NULL OR phone='')", (tel, pedido_id))
             conn.commit()
         finally:
             conn.close()
         STATS["webhook_paid"] += 1
-        log.info("webhook PAGO(verified=%s): %s session=%s order=%s amount=%s pedido=%s",
-                 verified, event, sid, order_id, pay.get("amount"), pedido_id)
+        log.info("webhook PAGO(verified=%s): %s session=%s order=%s paggins_order=%s "
+                 "amount_cents=%s pedido=%s", verified, event, sid, order_id,
+                 paggins_order, amount_cents, pedido_id)
         if pedido_id:
             asyncio.create_task(_enrich_then_bling(pedido_id, sid))
+        elif sid or order_id:
+            log.warning("webhook pago sem pedido casado (session=%s order=%s) — conferir painel",
+                        sid, order_id)
     return {"received": True}
 
 
