@@ -6,6 +6,10 @@
  * visualmente e injetamos o `coupon` no POST /checkout. Validação final = bridge.
  *
  * % por cupom (espelha INFLUENCER_COUPONS do bridge). Manter os dois em sincronia.
+ *
+ * CUPOM PADRÃO: sem link de influencer nem cupom salvo, TODO visitante recebe
+ * DEFAULT_CODE (ARTHURPC 5%). Link /CODE ou cupom salvo de outro influencer vence.
+ * DEFAULT_CODE = "" desliga. ARTHURPC não tem afiliado cadastrado → sem comissão.
  */
 (function () {
   "use strict";
@@ -14,6 +18,7 @@
                   KAKAU: 10, BVELOSO: 10, THIAGOC: 10,
                   COSENZA10: 10, RD10: 10, WOLFZ: 10, JUVZS: 10, DOPAMINA10: 10 };
   var KEY = "hyu_coupon";
+  var DEFAULT_CODE = "ARTHURPC";
   var PRICE_SRC = "R\\$\\s?\\d{1,3}(?:\\.\\d{3})*,\\d{2}";
 
   /* ---- resolve o cupom: 1) path /CODE  2) localStorage ---- */
@@ -34,7 +39,9 @@
     try { code = localStorage.getItem(KEY); } catch (e) {}
     if (code && !COUPONS[code]) code = null; // cupom obsoleto
   }
+  if (!code && COUPONS[DEFAULT_CODE]) code = DEFAULT_CODE; // cupom padrão do site
   if (!code) return;
+  var IS_DEFAULT = code === DEFAULT_CODE;
   var PCT = COUPONS[code];
 
   /* ---- helpers de preço ---- */
@@ -155,8 +162,10 @@
       '<span class="off">' + PCT + "% OFF</span>" +
       '<span class="msg">em todo o site<small>desconto aplicado automaticamente no checkout</small></span>' +
       '<span class="chip">🎟️ <b>CUPOM</b>&nbsp;' + code + "</span>" +
-      '<button class="x" type="button" aria-label="Remover cupom">✕</button>';
-    bar.querySelector(".x").addEventListener("click", function () {
+      (IS_DEFAULT ? "" : '<button class="x" type="button" aria-label="Remover cupom">✕</button>');
+    // cupom padrão não tem ✕: remover só faria ele voltar no reload
+    var x = bar.querySelector(".x");
+    if (x) x.addEventListener("click", function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
       location.reload();
     });
