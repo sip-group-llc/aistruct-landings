@@ -343,7 +343,9 @@ def _db() -> sqlite3.Connection:
         "status TEXT, paid_ts TEXT)"
     )
     # migracoes leves (tabelas ja criadas em producao nao ganham coluna via CREATE IF NOT EXISTS)
-    for tbl, col, decl in (("afiliados", "cupom", "TEXT"), ("comissoes", "via", "TEXT")):
+    for tbl, col, decl in (("afiliados", "cupom", "TEXT"), ("comissoes", "via", "TEXT"),
+                           ("orders", "paggins_order_id", "TEXT"),
+                           ("orders", "delivery_id", "TEXT")):
         try:
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {decl}")
         except sqlite3.OperationalError:
@@ -712,8 +714,15 @@ async def _do_checkout(payload: dict) -> dict:
                     "lines": [(i["sku"], i["quantity"]) for i in items],
                     "total": total, "meta": list(metadata),
                 })
-                if customer:
-                    # pedido completo (dados p/ NF-e) — casado depois pelo webhook
+                if sess.get("id"):
+                    # Salva também /buy e drawer sem contato: o webhook deve casar
+                    # uma sessão criada aqui, nunca fabricar um pedido de outro produto.
+                    saved_customer = customer or {"name": "", "document": "", "email": "", "phone": ""}
+                    saved_address = address or {k: "" for k in
+                        ("cep", "street", "number", "complement", "neighborhood", "city", "state")}
+                    saved_lines = [{**ln, "cents": max(1,
+                        (ln["cents"] * (100 - discount_pct) + 50) // 100)} for ln in lines]
+                    saved_subtotal = sum(ln["cents"] * ln["qty"] for ln in saved_lines)
                     conn = _db()
                     try:
                         conn.execute(
@@ -725,15 +734,15 @@ async def _do_checkout(payload: dict) -> dict:
                             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (datetime.now(timezone.utc).isoformat(timespec="seconds"),
                              order_id, sess.get("id"), "created",
-                             customer["name"], customer["document"],
-                             customer["email"], customer["phone"],
-                             address["cep"], address["street"], address["number"],
-                             address["complement"], address["neighborhood"],
-                             address["city"], address["state"],
+                             saved_customer["name"], saved_customer["document"],
+                             saved_customer["email"], saved_customer["phone"],
+                             saved_address["cep"], saved_address["street"], saved_address["number"],
+                             saved_address["complement"], saved_address["neighborhood"],
+                             saved_address["city"], saved_address["state"],
                              json.dumps([{k: ln[k] for k in
                                           ("sku", "name", "qty", "cents", "cans")}
-                                         for ln in lines], ensure_ascii=False),
-                             subtotal, frete_cents, frete_service, total,
+                                         for ln in saved_lines], ensure_ascii=False),
+                             saved_subtotal, frete_cents, frete_service, total,
                              coupon_code, json.dumps(metadata, ensure_ascii=False),
                              ""))
                         conn.commit()
@@ -798,27 +807,22 @@ def _webhook_verified(raw: bytes, sig: str) -> bool:
     if not (PAGGINS_WEBHOOK_SECRET and sig):
         return False
     keys = [PAGGINS_WEBHOOK_SECRET]
-    if "_" in PAGGINS_WEBHOOK_SECRET:
-        keys.append(PAGGINS_WEBHOOK_SECRET.split("_", 1)[1])
-    m_t = re.search(r"t=(\d+)", sig)
-    m_v1 = re.search(r"v1=([a-fA-F0-9]{64})", sig)
-    if m_t and m_v1:
-        t, v1 = m_t.group(1), m_v1.group(1).lower()
+    if PAGGINS_WEBHOOK_SECRET.startswith("whsec_"):
+        keys.append(PAGGINS_WEBHOOK_SECRET[6:])
+    signed_header = re.fullmatch(r"t=(\d+),\s*v1=([a-fA-F0-9]{64})", sig.strip())
+    if signed_header:
+        t, v1 = signed_header.group(1), signed_header.group(2).lower()
         if abs(time.time() - int(t)) > 300:
             return False
         signed = t.encode() + b"." + raw
         return any(hmac.compare_digest(
             hmac.new(k.encode(), signed, hashlib.sha256).hexdigest(), v1) for k in keys)
     # legado (esquema antigo, sem timestamp)
-    bodies = {raw}
-    try:
-        bodies.add(json.dumps(json.loads(raw), separators=(",", ":")).encode())
-    except Exception:
-        pass
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", sig):
+        return False
     for k in keys:
-        for b in bodies:
-            if hmac.compare_digest(hmac.new(k.encode(), b, hashlib.sha256).hexdigest(), sig):
-                return True
+        if hmac.compare_digest(hmac.new(k.encode(), raw, hashlib.sha256).hexdigest(), sig.lower()):
+            return True
     return False
 
 
@@ -827,55 +831,58 @@ async def paggins_webhook(request: Request):
     """Recebe eventos da Paggins e marca pedidos pagos.
 
     Assinatura (X-Paggins-Signature, esquema oficial t=,v1= — ver _webhook_verified):
-    inválida → 401 e NÃO processa (guia §5). Sem PAGGINS_WEBHOOK_SECRET configurado
-    o serviço aceita sem verificar (loga WARNING) — só pra ambiente de dev."""
+    inválida → 401 e NÃO processa (guia §5). Sem segredo configurado → 503."""
     raw = await request.body()
     STATS["webhook_received"] += 1
+    if not PAGGINS_WEBHOOK_SECRET:
+        raise HTTPException(503, "webhook nao configurado")
     verified = _webhook_verified(raw, request.headers.get("x-paggins-signature", ""))
     if not verified:
         STATS["webhook_bad_sig"] += 1
-        if PAGGINS_WEBHOOK_SECRET:
-            log.warning("webhook Paggins REJEITADO (assinatura inválida) delivery=%s event=%s",
-                        request.headers.get("x-paggins-delivery-id", "?"),
-                        request.headers.get("x-paggins-event", "?"))
-            raise HTTPException(401, "assinatura invalida")
-        log.warning("webhook Paggins sem PAGGINS_WEBHOOK_SECRET — aceito SEM verificar")
+        log.warning("webhook Paggins REJEITADO (assinatura inválida)")
+        raise HTTPException(401, "assinatura invalida")
     try:
         ev = json.loads(raw or b"{}")
     except Exception:
         raise HTTPException(400, "JSON invalido")
+    if not isinstance(ev, dict):
+        raise HTTPException(400, "evento invalido")
     event = ev.get("event") or ev.get("type") or ""
+    if not isinstance(event, str):
+        raise HTTPException(400, "evento invalido")
     # formato oficial (guia §5): envelope {id, event, created_at, data:{...}}.
     # Formato legado (chaves na raiz) segue aceito.
     data = ev.get("data") if isinstance(ev.get("data"), dict) else ev
-    sid = (data.get("checkoutSessionId") or data.get("sdkSessionId")
+    sid = (data.get("checkoutSessionId") or data.get("sdkSessionId") or data.get("sessionId")
+           or data.get("session_id")
            or ev.get("sessionId") or ev.get("session_id") or "")
+    if not isinstance(sid, str):
+        raise HTTPException(400, "session invalida")
     # nosso order_id (externalOrderId da sessão). Se a Paggins não devolver, cai
     # pro ?ref= da successUrl (guia: "case por externalOrderId ou conversionData.successUrl")
     order_id = str(data.get("externalOrderId") or ev.get("externalOrderId") or "")
     if not order_id:
+        conversion = data.get("conversionData") or {}
+        if not isinstance(conversion, dict):
+            raise HTTPException(400, "conversionData invalido")
         m_ref = re.search(r"[?&]ref=([A-Za-z0-9_-]+)",
-                          str((data.get("conversionData") or {}).get("successUrl") or ""))
+                          str(conversion.get("successUrl") or ""))
         order_id = m_ref.group(1) if m_ref else ""
     paggins_order = str(data.get("orderId") or "")          # id do pedido NA Paggins
     delivery_id = str(ev.get("id") or request.headers.get("x-paggins-delivery-id") or "")
-    PAID = {"order.paid", "checkout.session.completed", "payment.succeeded", "order.fulfilled"}
+    PAID = {"order.paid", "checkout.session.completed", "payment.succeeded"}
     REVIEW = ("refund", "chargeback", "dispute")
-    if any(k in event.lower() for k in REVIEW):
+    is_review = any(k in event.lower() for k in REVIEW)
+    if is_review:
         log.warning("webhook REVISAO: %s session=%s order=%s paggins_order=%s",
                     event, sid, order_id, paggins_order)
-        conn = _db()
-        try:
-            conn.execute(
-                "INSERT INTO orders (ts, session_id, order_id, event, status, amount_cents, verified, payload) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (datetime.now(timezone.utc).isoformat(timespec="seconds"), sid, order_id,
-                 event, "review", None, int(verified), json.dumps(ev, ensure_ascii=False)[:4000]))
-            conn.commit()
-        finally:
-            conn.close()
-        return {"received": True}
-    if event in PAID:
+    if event in PAID or is_review:
+        pay = data.get("payment") or ev.get("payment") or {}
+        if not isinstance(pay, dict):
+            raise HTTPException(400, "payment invalido")
+        if not is_review and pay.get("status") and str(pay["status"]).lower() not in {
+                "paid", "succeeded", "success", "completed"}:
+            return {"received": True, "ignored": True}
         # valor pago: no webhook vem em UNIDADES da moeda (37 = R$ 37,00), não centavos
         amount_cents: int | None = None
         for k in ("effectiveAmount", "totalAmount"):
@@ -884,54 +891,80 @@ async def paggins_webhook(request: Request):
                 amount_cents = int(round(float(v) * 100))
                 break
         if amount_cents is None:
-            pay = data.get("payment") or ev.get("payment") or {}
             if isinstance(pay.get("amount"), (int, float)):
                 amount_cents = int(pay["amount"])   # legado: já em centavos
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
         pedido_id = None
         conn = _db()
         try:
+            # Lock de escrita antes do SELECT: dois workers não podem observar
+            # simultaneamente ausência de evento e gerar dois despachos no Bling.
+            conn.execute("BEGIN IMMEDIATE")
+            # Refunds podem trazer apenas o ID da Paggins: recupera a associação
+            # já registrada no evento pago, sem confundir com nosso externalOrderId.
+            if paggins_order and not (sid or order_id):
+                previous = conn.execute(
+                    "SELECT session_id, order_id FROM orders WHERE paggins_order_id=? OR "
+                    "json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.data.orderId')=? "
+                    "ORDER BY id DESC LIMIT 1", (paggins_order, paggins_order)).fetchone()
+                if previous:
+                    sid, order_id = previous[0] or "", previous[1] or ""
             # idempotência: a Paggins reenvia até 5x — mesmo pedido/entrega já pago → 200 e nada
             dup = None
             if paggins_order:
                 dup = conn.execute(
-                    "SELECT id FROM orders WHERE status='paid' AND payload LIKE ? LIMIT 1",
-                    (f'%"orderId": "{paggins_order}"%',)).fetchone()
+                    "SELECT id FROM orders WHERE status=? AND (paggins_order_id=? OR "
+                    "json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.data.orderId')=?) LIMIT 1",
+                    ("review" if is_review else "paid", paggins_order, paggins_order)).fetchone()
             if dup is None and delivery_id:
                 dup = conn.execute(
-                    "SELECT id FROM orders WHERE status='paid' AND payload LIKE ? LIMIT 1",
-                    (f'%"id": "{delivery_id}"%',)).fetchone()
+                    "SELECT id FROM orders WHERE delivery_id=? OR "
+                    "json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.id')=? LIMIT 1",
+                    (delivery_id, delivery_id)).fetchone()
             if dup is None and sid:
                 dup = conn.execute(
-                    "SELECT id FROM orders WHERE status='paid' AND session_id=? LIMIT 1",
-                    (sid,)).fetchone()
+                    "SELECT id FROM orders WHERE status=? AND session_id=? LIMIT 1",
+                    ("review" if is_review else "paid", sid)).fetchone()
+            if dup is None and order_id:
+                dup = conn.execute(
+                    "SELECT id FROM orders WHERE status=? AND order_id=? LIMIT 1",
+                    ("review" if is_review else "paid", order_id)).fetchone()
             if dup:
                 log.info("webhook DUPLICADO ignorado: %s session=%s paggins_order=%s",
                          event, sid, paggins_order)
                 return {"received": True, "duplicate": True}
-            conn.execute(
-                "INSERT INTO orders (ts, session_id, order_id, event, status, amount_cents, verified, payload) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (ts, sid, order_id, event, "paid", amount_cents, int(verified),
-                 json.dumps(ev, ensure_ascii=False)[:4000]))
             row = None
+            conn.row_factory = sqlite3.Row
             if sid:
                 row = conn.execute(
-                    "SELECT id, session_id FROM pedidos WHERE session_id=? ORDER BY id DESC LIMIT 1",
+                    "SELECT * FROM pedidos WHERE session_id=? ORDER BY id DESC LIMIT 1",
                     (sid,)).fetchone()
             if row is None and order_id:
                 row = conn.execute(
-                    "SELECT id, session_id FROM pedidos WHERE order_id=? ORDER BY id DESC LIMIT 1",
+                    "SELECT * FROM pedidos WHERE order_id=? ORDER BY id DESC LIMIT 1",
                     (order_id,)).fetchone()
             if row:
-                pedido_id = row[0]
-                sid = sid or (row[1] or "")
+                if ((sid and row["session_id"] and sid != row["session_id"])
+                        or (order_id and order_id != row["order_id"])):
+                    raise HTTPException(400, "pedido e sessao nao correspondem")
+                pedido_id = row["id"]
+                sid = sid or (row["session_id"] or "")
+                order_id = row["order_id"]
+                if row["status"] == "review" and not is_review:
+                    return {"received": True, "review": True}
+                if not is_review and amount_cents is not None and amount_cents != row["total_cents"]:
+                    raise HTTPException(400, "valor pago nao corresponde ao pedido")
+                currency = data.get("currency") or pay.get("currency")
+                if currency and str(currency).upper() != "BRL":
+                    raise HTTPException(400, "moeda nao corresponde ao pedido")
                 conn.execute(
-                    "UPDATE pedidos SET status='paid', paid_ts=? WHERE id=?",
-                    (ts, pedido_id))
+                    "UPDATE pedidos SET status=?, paid_ts=COALESCE(paid_ts, ?) WHERE id=?",
+                    ("review" if is_review else "paid", ts, pedido_id))
                 # o webhook já traz CPF/telefone do comprador (data.customer) —
                 # completa o que o passo-1 do site não coleta (NF-e no Bling)
                 wc = data.get("customer") or {}
+                if not isinstance(wc, dict):
+                    raise HTTPException(400, "customer invalido")
                 doc = re.sub(r"\D", "", str(wc.get("document") or ""))[:14]
                 tel = re.sub(r"\D", "", str(wc.get("phoneNumber") or wc.get("phone") or ""))[:13]
                 if doc:
@@ -940,14 +973,29 @@ async def paggins_webhook(request: Request):
                 if tel:
                     conn.execute("UPDATE pedidos SET phone=? WHERE id=? AND "
                                  "(phone IS NULL OR phone='')", (tel, pedido_id))
+                if is_review:
+                    # Partial refund / dispute needs manual reconciliation; hold
+                    # pending commission rather than assuming a full reversal.
+                    conn.execute("UPDATE comissoes SET status='review' "
+                                 "WHERE pedido_id=? AND status='pending'", (pedido_id,))
+            conn.execute(
+                "INSERT INTO orders (ts, session_id, order_id, event, status, amount_cents, verified, "
+                "payload, paggins_order_id, delivery_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (ts, sid, order_id, event, "review" if is_review else "paid", amount_cents,
+                 int(verified), json.dumps(ev, ensure_ascii=False)[:4000], paggins_order, delivery_id))
             conn.commit()
         finally:
             conn.close()
+        if is_review:
+            return {"received": True, "review": True}
         STATS["webhook_paid"] += 1
         log.info("webhook PAGO(verified=%s): %s session=%s order=%s paggins_order=%s "
                  "amount_cents=%s pedido=%s", verified, event, sid, order_id,
                  paggins_order, amount_cents, pedido_id)
         if pedido_id:
+            _credit_commission(order_id, pedido_id,
+                (json.loads(row["meta"] or "{}")).get("ref", ""),
+                row["total_cents"] - row["frete_cents"], row["coupon"] or "")
             asyncio.create_task(_enrich_then_bling(pedido_id, sid))
         elif sid or order_id:
             log.warning("webhook pago sem pedido casado (session=%s order=%s) — conferir painel",
@@ -964,7 +1012,8 @@ async def _enrich_from_paggins(pid: int, sid: str) -> None:
     """Completa CPF/telefone/endereço do pedido com o que a Paggins devolver na
     sessão pós-pagamento. Necessário desde o passo-1 enxuto (07/07): o site só
     coleta contato+CEP; o comprador digita CPF e endereço na página da Paggins.
-    Loga o JSON cru da sessão (prova de campo: o que a Paggins realmente expõe)."""
+    Loga apenas nomes dos campos; dados pessoais permanecem no banco do pedido.
+    A sessão pode não expor os dados completos: Bling fica pending nesse caso."""
     p = _pedido_get(pid)
     if not p or not sid:
         return
@@ -984,7 +1033,7 @@ async def _enrich_from_paggins(pid: int, sid: str) -> None:
         log.warning("enrich pedido %s: GET session %s -> %s", pid, sid, r.status_code)
         return
     s = r.json()
-    log.info("enrich RAW session %s: %s", sid, json.dumps(s, ensure_ascii=False)[:1800])
+    log.info("enrich session %s: campos=%s", sid, sorted(s))
     cust = s.get("customer") or {}
     addr = (s.get("shippingAddress") or cust.get("shippingAddress")
             or (s.get("shippingInfo") or {}).get("address") or {})
@@ -1043,7 +1092,7 @@ async def _bling_dispatch(pid: int) -> None:
     """Cria contato+pedido de venda no Bling p/ um pedido pago. Falha → bling_status
     'error'/'pending' (re-tenta pelo painel POST /pedidos/{id}/bling)."""
     p = _pedido_get(pid)
-    if not p or p.get("bling_status") == "created":
+    if not p or p.get("status") != "paid" or p.get("bling_status") == "created":
         return
     faltam = [k for k in ("document", "street", "number", "city", "state")
               if not str(p.get(k) or "").strip()]
@@ -1851,6 +1900,10 @@ def _credit_commission(order_id: str, pedido_id: int, ref: str, base_cents: int,
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn = _db()
     try:
+        conn.execute("BEGIN IMMEDIATE")
+        paid = conn.execute("SELECT status FROM pedidos WHERE id=?", (pedido_id,)).fetchone()
+        if not paid or paid[0] != "paid":
+            return
         row = via = None
         if tag:
             row = conn.execute(
