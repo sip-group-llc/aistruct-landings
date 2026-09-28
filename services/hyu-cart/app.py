@@ -142,6 +142,20 @@ def _parse_coupons() -> dict[str, int]:
 INFLUENCER_COUPONS = _parse_coupons()
 
 
+# Cupom PADRÃO aplicado a toda sessão Paggins do site (drawer, /buy, pré-checkout).
+# Se o cliente trouxer outro cupom, vale o de MAIOR desconto; empate mantém o do
+# cliente (preserva a atribuição do influencer). "" desliga. Env: DEFAULT_COUPON.
+DEFAULT_COUPON = os.environ.get("DEFAULT_COUPON", "COSENZA10").strip().upper()
+
+
+def _coupon_with_default(raw_coupon: Any) -> tuple[str, int]:
+    code, pct = _coupon_discount(raw_coupon)
+    dcode, dpct = _coupon_discount(DEFAULT_COUPON)
+    if dpct > pct:
+        return dcode, dpct
+    return code, pct
+
+
 def _coupon_discount(raw_coupon: Any) -> tuple[str, int]:
     """Retorna (CODIGO, pct) se o cupom for válido/conhecido, senão ("", 0)."""
     code = str(raw_coupon or "").strip().upper()
@@ -614,7 +628,7 @@ async def _do_checkout(payload: dict) -> dict:
     cans = sum(ln["cans"] for ln in lines)
 
     # cupom de influencer → desconta o unitAmount de cada item (centavos, arredonda)
-    coupon_code, discount_pct = _coupon_discount(payload.get("coupon"))
+    coupon_code, discount_pct = _coupon_with_default(payload.get("coupon"))
     if discount_pct:
         # half-up em centavos inteiros — bate exatamente com o display do front (JS Math.round)
         # + selo no NOME (único campo que renderiza no resumo da Paggins; description/linha

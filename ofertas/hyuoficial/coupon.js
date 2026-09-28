@@ -6,6 +6,10 @@
  * visualmente e injetamos o `coupon` no POST /checkout. Validação final = bridge.
  *
  * % por cupom (espelha INFLUENCER_COUPONS do bridge). Manter os dois em sincronia.
+ *
+ * CUPOM PADRÃO (DEFAULT_CODE, espelha DEFAULT_COUPON do bridge): todo visitante
+ * recebe COSENZA10 (10%). Link /CODE ou cupom salvo só vence se der desconto
+ * MAIOR ou IGUAL (empate mantém o do influencer). DEFAULT_CODE = "" desliga.
  */
 (function () {
   "use strict";
@@ -14,6 +18,7 @@
                   KAKAU: 10, BVELOSO: 10, THIAGOC: 10,
                   COSENZA10: 10, RD10: 10, WOLFZ: 10, JUVZS: 10, DOPAMINA10: 10 };
   var KEY = "hyu_coupon";
+  var DEFAULT_CODE = "COSENZA10";
   var PRICE_SRC = "R\\$\\s?\\d{1,3}(?:\\.\\d{3})*,\\d{2}";
 
   /* ---- resolve o cupom: 1) path /CODE  2) localStorage ---- */
@@ -34,7 +39,10 @@
     try { code = localStorage.getItem(KEY); } catch (e) {}
     if (code && !COUPONS[code]) code = null; // cupom obsoleto
   }
+  // cupom padrão do site: entra se não há cupom ou se o do cliente dá menos desconto
+  if (COUPONS[DEFAULT_CODE] && (!code || COUPONS[code] < COUPONS[DEFAULT_CODE])) code = DEFAULT_CODE;
   if (!code) return;
+  var IS_DEFAULT = code === DEFAULT_CODE;
   var PCT = COUPONS[code];
 
   /* ---- helpers de preço ---- */
@@ -155,8 +163,10 @@
       '<span class="off">' + PCT + "% OFF</span>" +
       '<span class="msg">em todo o site<small>desconto aplicado automaticamente no checkout</small></span>' +
       '<span class="chip">🎟️ <b>CUPOM</b>&nbsp;' + code + "</span>" +
-      '<button class="x" type="button" aria-label="Remover cupom">✕</button>';
-    bar.querySelector(".x").addEventListener("click", function () {
+      (IS_DEFAULT ? "" : '<button class="x" type="button" aria-label="Remover cupom">✕</button>');
+    // cupom padrão não tem ✕: remover só faria ele voltar no reload
+    var x = bar.querySelector(".x");
+    if (x) x.addEventListener("click", function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
       location.reload();
     });
