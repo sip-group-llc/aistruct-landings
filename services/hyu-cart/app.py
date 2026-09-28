@@ -629,15 +629,18 @@ async def _do_checkout(payload: dict) -> dict:
 
     # cupom de influencer → desconta o unitAmount de cada item (centavos, arredonda)
     coupon_code, discount_pct = _coupon_with_default(payload.get("coupon"))
+    # Desconto vai no campo NATIVO `coupon` da sessão (type fixed, centavos): a Paggins
+    # mostra "Cupom X aplicado -R$ y" no resumo. Os itens seguem com preço CHEIO.
+    # ⚠️ NÃO usar type "percentage": a Paggins aplica o % também no item Frete
+    #    (provado 28/09: Kit Energy+frete 103,67 -> 93,30 em vez de 96,68).
+    # Valor = soma do desconto half-up por unidade (bate com o display do front, JS
+    # Math.round). Calculado ANTES do item Frete entrar em `items`.
+    discount_cents = 0
     if discount_pct:
-        # half-up em centavos inteiros — bate exatamente com o display do front (JS Math.round)
-        # + selo no NOME (único campo que renderiza no resumo da Paggins; description/linha
-        #   negativa/item R$0 são rejeitados) p/ o cliente ver que o desconto já está aplicado.
-        #   O SKU permanece limpo (fulfillment lê o SKU).
-        tag = f" · {discount_pct}% OFF cupom {coupon_code}"
         for it in items:
-            it["unitAmount"] = max(1, (it["unitAmount"] * (100 - discount_pct) + 50) // 100)
-            it["name"] = (str(it.get("name", ""))[:255 - len(tag)] + tag)
+            full = it["unitAmount"]
+            discount_cents += (full - max(1, (full * (100 - discount_pct) + 50) // 100)) \
+                * it["quantity"]
 
     # ── FRETE decidido AQUI (NÃO usamos o frete nativo da Paggins: o checkout SDK
     #    ignora as regras por-produto e o "frete geral" da loja fica em 0). O frete
@@ -697,10 +700,13 @@ async def _do_checkout(payload: dict) -> dict:
         "externalOrderId": order_id,
         "customer": pag_customer,
     }
+    if discount_cents > 0:
+        body["coupon"] = {"code": coupon_code, "type": "fixed", "value": discount_cents}
     metadata = _build_metadata(payload.get("meta"))
     if discount_pct:
         metadata["coupon"] = coupon_code
         metadata["discount_pct"] = str(discount_pct)
+        metadata["discount_cents"] = str(discount_cents)
     if metadata:
         body["metadata"] = metadata
 
@@ -718,7 +724,7 @@ async def _do_checkout(payload: dict) -> dict:
                                  headers=headers, json=body)
             if r.status_code in (200, 201):
                 sess = r.json()
-                total = sum(i["unitAmount"] * i["quantity"] for i in items)
+                total = sum(i["unitAmount"] * i["quantity"] for i in items) - discount_cents
                 STATS["created"] += 1
                 RECENT.append({
                     "ts": datetime.now(timezone.utc).isoformat(),
