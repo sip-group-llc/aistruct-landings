@@ -365,6 +365,121 @@ def _db() -> sqlite3.Connection:
     return conn
 
 
+# ═══════════ Pedido a partir do webhook Paggins (fluxo direto do drawer) ═══════════
+# O drawer vai direto pra Paggins sem passar pelo pré-checkout, então nenhuma linha
+# em `pedidos` existe quando o order.paid chega. O webhook traz tudo (cliente, CPF,
+# telefone, endereço em data.shippingInfo, itens em data.externalProductData) →
+# montamos o pedido completo daqui, no mesmo formato do _cart_lines (p/ o Bling).
+_UF = {"acre": "AC", "alagoas": "AL", "amapa": "AP", "amazonas": "AM", "bahia": "BA",
+       "ceara": "CE", "distrito federal": "DF", "espirito santo": "ES", "goias": "GO",
+       "maranhao": "MA", "mato grosso": "MT", "mato grosso do sul": "MS",
+       "minas gerais": "MG", "para": "PA", "paraiba": "PB", "parana": "PR",
+       "pernambuco": "PE", "piaui": "PI", "rio de janeiro": "RJ",
+       "rio grande do norte": "RN", "rio grande do sul": "RS", "rondonia": "RO",
+       "roraima": "RR", "santa catarina": "SC", "sao paulo": "SP", "sergipe": "SE",
+       "tocantins": "TO"}
+
+
+def _uf(state: Any) -> str:
+    import unicodedata
+    st = str(state or "").strip()
+    if len(st) == 2:
+        return st.upper()
+    key = "".join(c for c in unicodedata.normalize("NFD", st.lower())
+                  if unicodedata.category(c) != "Mn")
+    return _UF.get(key, st[:2].upper())
+
+
+def _catalog_by_name() -> dict[str, dict[str, Any]]:
+    idx: dict[str, dict[str, Any]] = {}
+    for c in COMBOS.values():
+        idx[c["name"]] = {"sku": f"HYU-{c['sku']}", "cans": c["cans"], "cents": c["cents"]}
+    for f in FLAVORS.values():
+        for t in TIERS.values():
+            idx[f"{f['name']} — {t['label']}"] = {"sku": f"HYU-{f['sku']}-{t['sku']}",
+                                                   "cans": t["cans"], "cents": t["cents"]}
+    return idx
+
+
+def _lines_from_paggins(data: dict) -> tuple[list[dict[str, Any]], int]:
+    """(linhas no formato do _cart_lines, frete_cents) a partir do order.paid."""
+    idx = _catalog_by_name()
+    by_short = {f["short"].lower(): f for f in FLAVORS.values()}
+    raw = data.get("externalProductData") or []
+    if not raw:   # compra por link nativo (assinatura): só data.items, preço em reais
+        raw = [{"name": i.get("productName"), "quantity": i.get("quantity") or 1,
+                "unitAmount": int(round(float(i.get("price") or 0) * 100))}
+               for i in (data.get("items") or [])]
+    lines: list[dict[str, Any]] = []
+    frete = 0
+    for it in raw:
+        name = re.sub(r"\s*·\s*\d+% OFF cupom \S+$", "", str(it.get("name") or "")).strip()
+        qty = int(it.get("quantity") or 1)
+        cents = int(it.get("unitAmount") or 0)
+        if name.lower() == "frete":
+            frete += cents * qty
+            continue
+        hit = idx.get(name)
+        if hit:
+            lines.append({"qty": qty, "sku": hit["sku"], "name": name, "cents": cents or hit["cents"],
+                          "cans": hit["cans"] * qty})
+            continue
+        m = re.match(r"HYU Kit (6|12) Personalizado — (.+)$", name)
+        if m:
+            tier = TIERS["kit" + m.group(1)]
+            parts = []
+            for chunk in m.group(2).split(" + "):
+                mm = re.match(r"(\d+) (.+)$", chunk.strip())
+                f = by_short.get(mm.group(2).lower()) if mm else None
+                if f:
+                    parts.append(f"{f['code']}{mm.group(1)}")
+            lines.append({"qty": qty, "sku": "HYU-MIX" + tier["sku"] + "-" + "".join(parts),
+                          "name": name, "cents": cents, "cans": tier["cans"] * qty})
+            continue
+        lines.append({"qty": qty, "sku": _derive_sku(name) or "HYU-DESCONHECIDO",
+                      "name": name, "cents": cents,
+                      "cans": (12 if "12 latas" in name else 6 if "6 latas" in name
+                               else 24 if "24 latas" in name else 0) * qty})
+    return lines, frete
+
+
+def _insert_pedido_from_paggins(conn: sqlite3.Connection, data: dict, sid: str,
+                                ts: str) -> int:
+    """Cria a linha em `pedidos` (status paid) com os dados do webhook. Retorna o id."""
+    cust = data.get("customer") or {}
+    si = data.get("shippingInfo") or {}
+    lines, frete = _lines_from_paggins(data)
+    phone = re.sub(r"\D", "", str(cust.get("phoneNumber") or cust.get("phone") or ""))
+    if len(phone) in (12, 13) and phone.startswith("55"):
+        phone = phone[2:]
+    subtotal = sum(ln["cents"] * ln["qty"] for ln in lines)
+    eff = data.get("effectiveAmount")
+    total = int(round(float(eff) * 100)) if isinstance(eff, (int, float)) else subtotal + frete
+    order_id = "paggins-" + str(data.get("orderNumber") or data.get("globalOrderId")
+                                or data.get("orderId") or sid)[:40]
+    meta = {"src": "paggins-webhook", "paggins_order": str(data.get("orderId") or ""),
+            "pagamento": str(data.get("paymentMethod") or ""),
+            "origem": str((data.get("conversionData") or {}).get("origem") or "")}
+    cur = conn.execute(
+        "INSERT INTO pedidos (ts, order_id, session_id, status, paid_ts, name, document, "
+        "email, phone, cep, street, number, complement, neighborhood, city, state, items, "
+        "subtotal_cents, frete_cents, frete_service, total_cents, coupon, meta, bling_status) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (str(data.get("createdAt") or ts)[:25], order_id, sid, "paid", ts,
+         str(cust.get("fullName") or "").strip()[:120],
+         re.sub(r"\D", "", str(cust.get("document") or ""))[:14],
+         str(cust.get("email") or "").strip().lower()[:160], phone[:13],
+         re.sub(r"\D", "", str(si.get("zipCode") or ""))[:8],
+         str(si.get("street") or "").strip()[:120], str(si.get("number") or "").strip()[:12],
+         str(si.get("complement") or "").strip()[:100],
+         str(si.get("neighborhood") or "").strip()[:80],
+         str(si.get("city") or "").strip()[:80], _uf(si.get("state")),
+         json.dumps(lines, ensure_ascii=False), subtotal, frete,
+         ("pago" if frete else "gratis"), total, str(data.get("couponCode") or ""),
+         json.dumps(meta, ensure_ascii=False), ""))
+    return int(cur.lastrowid)
+
+
 def _cart_lines(raw_items: Any) -> list[dict[str, Any]]:
     """Valida/mescla o carrinho; retorna linhas normalizadas com preco do catalogo:
     [{qty, sku, name, cents, cans, productId, img, desc?}] (cents = unitario)."""
@@ -933,7 +1048,7 @@ async def paggins_webhook(request: Request):
                 "INSERT INTO orders (ts, session_id, order_id, event, status, amount_cents, verified, payload) "
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (ts, sid, order_id, event, "paid", amount_cents, int(verified),
-                 json.dumps(ev, ensure_ascii=False)[:4000]))
+                 json.dumps(ev, ensure_ascii=False)[:16000]))
             row = None
             if sid:
                 row = conn.execute(
@@ -943,6 +1058,10 @@ async def paggins_webhook(request: Request):
                 row = conn.execute(
                     "SELECT id, session_id FROM pedidos WHERE order_id=? ORDER BY id DESC LIMIT 1",
                     (order_id,)).fetchone()
+            if row is None and isinstance(data.get("customer"), dict):
+                # fluxo direto do drawer: pedido nasce aqui, completo, já pago
+                pedido_id = _insert_pedido_from_paggins(conn, data, sid, ts)
+                log.info("webhook: pedido %s criado a partir do payload Paggins", pedido_id)
             if row:
                 pedido_id = row[0]
                 sid = sid or (row[1] or "")
@@ -960,6 +1079,17 @@ async def paggins_webhook(request: Request):
                 if tel:
                     conn.execute("UPDATE pedidos SET phone=? WHERE id=? AND "
                                  "(phone IS NULL OR phone='')", (tel, pedido_id))
+                si = data.get("shippingInfo") or {}
+                for col, val in (("cep", re.sub(r"\D", "", str(si.get("zipCode") or ""))[:8]),
+                                 ("street", str(si.get("street") or "").strip()[:120]),
+                                 ("number", str(si.get("number") or "").strip()[:12]),
+                                 ("complement", str(si.get("complement") or "").strip()[:100]),
+                                 ("neighborhood", str(si.get("neighborhood") or "").strip()[:80]),
+                                 ("city", str(si.get("city") or "").strip()[:80]),
+                                 ("state", _uf(si.get("state")) if si.get("state") else "")):
+                    if val:
+                        conn.execute(f"UPDATE pedidos SET {col}=? WHERE id=? AND "
+                                     f"({col} IS NULL OR {col}='')", (val, pedido_id))
             conn.commit()
         finally:
             conn.close()
@@ -1098,6 +1228,52 @@ async def _bling_dispatch(pid: int) -> None:
     except Exception as e:  # noqa: BLE001 — nunca derrubar o webhook
         _pedido_set(pid, bling_status="error", bling_error=str(e)[:400])
         log.error("bling FALHOU pedido %s: %s", p["order_id"], str(e)[:200])
+
+
+@app.post("/pedidos/recuperar-paggins")
+async def recuperar_paggins(request: Request):
+    """Cria em `pedidos` os order.paid da Paggins que ficaram só em `orders`
+    (vendas do fluxo direto do drawer antes da correção). Idempotente: pula quem já
+    tem pedido pela sessão/ordem Paggins. ?bling=1 também dispara o Bling."""
+    denied = _leads_auth(request)
+    if denied:
+        return denied
+    criados, pulados, erros = [], 0, []
+    conn = _db()
+    try:
+        rows = conn.execute("SELECT ts, session_id, payload FROM orders WHERE "
+                            "event='order.paid' AND status='paid' ORDER BY id").fetchall()
+        for ts, sid, payload in rows:
+            try:
+                data = (json.loads(payload) or {}).get("data") or {}
+            except Exception:
+                erros.append(ts)
+                continue
+            if not isinstance(data.get("customer"), dict):
+                continue
+            sid = sid or str(data.get("sdkSessionId") or "")
+            porder = str(data.get("orderId") or "")
+            dup = None
+            if sid:
+                dup = conn.execute("SELECT id FROM pedidos WHERE session_id=? LIMIT 1",
+                                   (sid,)).fetchone()
+            if dup is None and porder:
+                dup = conn.execute("SELECT id FROM pedidos WHERE meta LIKE ? LIMIT 1",
+                                   (f'%"paggins_order": "{porder}"%',)).fetchone()
+            if dup:
+                pulados += 1
+                continue
+            pid = _insert_pedido_from_paggins(conn, data, sid, ts)
+            criados.append(pid)
+        conn.commit()
+    finally:
+        conn.close()
+    if request.query_params.get("bling") == "1":
+        for pid in criados:
+            await _bling_dispatch(pid)
+    log.info("recuperar-paggins: criados=%s pulados=%s erros=%s", criados, pulados, erros)
+    return {"criados": len(criados), "ids": criados, "ja_existiam": pulados,
+            "payload_invalido": erros}
 
 
 @app.post("/pedidos/{pid}/bling")
