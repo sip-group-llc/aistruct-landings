@@ -228,7 +228,7 @@ MIX_STEP = int(os.environ.get("MIX_STEP", "1"))                # latas por sabor
 # ⚠️ COMBOS que contêm esses sabores (kit-soda/super-kit/kit24/assinaturas) seguem
 # vendendo — decisão de negócio separada.
 OUT_OF_STOCK = {s.strip() for s in os.environ.get(
-    "OUT_OF_STOCK_FLAVORS", "hot-lemon,pessego-morango").split(",") if s.strip()}
+    "OUT_OF_STOCK_FLAVORS", "").split(",") if s.strip()}
 MIX_PRODUCT_IDS: dict[str, str] = {
     "kit6":  os.environ.get("MIX_PRODUCT_ID_KIT6",
                             "62ed2805-089e-454f-afa0-f28f6dfa6abc"),   # HYU Kit Soda (6)
