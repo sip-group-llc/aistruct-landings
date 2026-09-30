@@ -116,10 +116,9 @@ FRETE_PRODUCT_ID = os.environ.get(
 BLING = BlingClient()
 
 
-# ── Cupons de influencer (desconto aplicado AQUI, no unitAmount) ──────────────
-# O checkout EXTERNO (SDK) da Paggins NÃO aplica cupom (provado: campo de cupom não
-# funciona em sessões SDK). Então o desconto é aplicado no preço que enviamos, e o
-# código do influencer vai em metadata.coupon p/ atribuição/comissão.
+# ── Cupons de influencer (validados AQUI, somente quando informados) ─────────
+# Paggins recebe o desconto no campo nativo coupon, com valor fixo em centavos.
+# O código do influencer também vai em metadata.coupon p/ atribuição/comissão.
 # Override por env: INFLUENCER_COUPONS_JSON='{"ARTHURPC":5,...}'
 _DEFAULT_COUPONS = {
     "ARTHURPC": 5, "THIAGO": 5, "ISA": 5, "NATHAN": 5, "DIGAO": 5,
@@ -140,20 +139,6 @@ def _parse_coupons() -> dict[str, int]:
 
 
 INFLUENCER_COUPONS = _parse_coupons()
-
-
-# Cupom PADRÃO aplicado a toda sessão Paggins do site (drawer, /buy, pré-checkout).
-# Se o cliente trouxer outro cupom, vale o de MAIOR desconto; empate mantém o do
-# cliente (preserva a atribuição do influencer). "" desliga. Env: DEFAULT_COUPON.
-DEFAULT_COUPON = os.environ.get("DEFAULT_COUPON", "COSENZA10").strip().upper()
-
-
-def _coupon_with_default(raw_coupon: Any) -> tuple[str, int]:
-    code, pct = _coupon_discount(raw_coupon)
-    dcode, dpct = _coupon_discount(DEFAULT_COUPON)
-    if dpct > pct:
-        return dcode, dpct
-    return code, pct
 
 
 def _coupon_discount(raw_coupon: Any) -> tuple[str, int]:
@@ -742,8 +727,8 @@ async def _do_checkout(payload: dict) -> dict:
     subtotal = sum(ln["cents"] * ln["qty"] for ln in lines)
     cans = sum(ln["cans"] for ln in lines)
 
-    # cupom de influencer → desconta o unitAmount de cada item (centavos, arredonda)
-    coupon_code, discount_pct = _coupon_with_default(payload.get("coupon"))
+    # Valida somente o cupom informado; ausência nunca implica um cupom padrão.
+    coupon_code, discount_pct = _coupon_discount(payload.get("coupon"))
     # Desconto vai no campo NATIVO `coupon` da sessão (type fixed, centavos): a Paggins
     # mostra "Cupom X aplicado -R$ y" no resumo. Os itens seguem com preço CHEIO.
     # ⚠️ NÃO usar type "percentage": a Paggins aplica o % também no item Frete
