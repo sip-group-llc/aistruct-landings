@@ -94,6 +94,7 @@ HYU_ORIGINS = [
     "https://hyudrinks.com", "https://www.hyudrinks.com",
     "https://hyuoficial.com", "https://www.hyuoficial.com",
     "https://teste.hyuoficial.com",  # site de teste (checkout Shopify gateado)
+    "https://hyuenergy.com", "https://www.hyuenergy.com",  # loja v2 (repo hyudrinks, app hyuoficial2)
 ]
 LEADS_PASSWORD = os.environ.get("LEADS_PASSWORD", "").strip()
 PAGGINS_WEBHOOK_SECRET = os.environ.get("PAGGINS_WEBHOOK_SECRET", "").strip()
@@ -124,6 +125,7 @@ _DEFAULT_COUPONS = {
     "ARTHURPC": 5, "THIAGO": 5, "ISA": 5, "NATHAN": 5, "DIGAO": 5,
     "KAKAU": 10, "BVELOSO": 10, "THIAGOC": 10,
     "COSENZA10": 10, "RD10": 10, "WOLFZ": 10, "JUVZS": 10, "DOPAMINA10": 10,
+    "BEMVINDO": 5,  # cupom da loja v2 (hyuenergy.com)
 }
 
 
@@ -1213,6 +1215,43 @@ async def _bling_dispatch(pid: int) -> None:
     except Exception as e:  # noqa: BLE001 — nunca derrubar o webhook
         _pedido_set(pid, bling_status="error", bling_error=str(e)[:400])
         log.error("bling FALHOU pedido %s: %s", p["order_id"], str(e)[:200])
+
+
+COMPRAS_SYNC_TOKEN = os.environ.get("COMPRAS_SYNC_TOKEN", "").strip()
+
+
+@app.get("/compras")
+async def compras_por_email(request: Request):
+    """Pedidos PAGOS de um e-mail, pra loja v2 mostrar no perfil do cliente logado.
+    Só servidor-a-servidor: Authorization: Bearer <COMPRAS_SYNC_TOKEN> (mesmo valor de
+    PURCHASES_SYNC_TOKEN na loja v2). Sem token configurado a rota fica desligada (503).
+    Devolve o mínimo: id, itens, valor, data do pagamento e rastreio."""
+    if not COMPRAS_SYNC_TOKEN:
+        raise HTTPException(503, "sync desativado")
+    auth = request.headers.get("authorization", "")
+    if not (auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], COMPRAS_SYNC_TOKEN)):
+        raise HTTPException(401, "nao autorizado")
+    email = str(request.query_params.get("email") or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(400, "e-mail invalido")
+    conn = _db()
+    try:
+        rows = conn.execute(
+            "SELECT order_id, items, total_cents, paid_ts, ts, tracking FROM pedidos "
+            "WHERE status='paid' AND lower(trim(email))=? ORDER BY COALESCE(paid_ts, ts) DESC LIMIT 100",
+            (email,)).fetchall()
+    finally:
+        conn.close()
+    orders = []
+    for order_id, items, total, paid_ts, ts, tracking in rows:
+        try:
+            itens = json.loads(items or "[]")
+        except Exception:
+            itens = []
+        orders.append({"id": str(order_id), "name": _itens_str(itens) or "Pedido HYU",
+                       "amountCents": int(total or 0), "paidAt": paid_ts or ts,
+                       "trackingCode": tracking or None})
+    return {"orders": orders}
 
 
 @app.post("/pedidos/recuperar-paggins")
