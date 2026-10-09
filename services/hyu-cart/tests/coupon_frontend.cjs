@@ -41,7 +41,7 @@ const clean = visit();
 assert.equal(clean.posted.coupon, undefined, 'clean visitor must not receive a coupon');
 assert.equal(clean.bar, undefined, 'clean visitor must not see a discount banner');
 assert.equal(visit('/', new Map([['hyu_coupon', 'INVALID']])).posted.coupon, undefined);
-for (const [code, pct] of [['ARTHURPC', 5], ['COSENZA10', 10], ['JUVZS', 10], ['DOPAMINA10', 10]]) {
+for (const [code, pct] of [['ARTHURPC', 5], ['VOLTESEMPRE', 5], ['COSENZA10', 10], ['JUVZS', 10], ['DOPAMINA10', 10]]) {
   const linked = visit('/' + code.toLowerCase());
   assert.equal(linked.posted.coupon, code, 'explicit link must keep its own coupon');
   assert.ok(linked.bar.innerHTML.includes(pct + '% OFF'));

@@ -15,7 +15,8 @@
   // Cupons de influencer. Os cinco originais seguem em 5%; os demais usam 10%.
   var COUPONS = { ARTHURPC: 5, THIAGO: 5, ISA: 5, NATHAN: 5, DIGAO: 5,
                   KAKAU: 10, BVELOSO: 10, THIAGOC: 10,
-                  COSENZA10: 10, RD10: 10, WOLFZ: 10, JUVZS: 10, DOPAMINA10: 10 };
+                  COSENZA10: 10, RD10: 10, WOLFZ: 10, JUVZS: 10, DOPAMINA10: 10,
+                  VOLTESEMPRE: 5 };
   var KEY = "hyu_coupon";
   var PRICE_SRC = "R\\$\\s?\\d{1,3}(?:\\.\\d{3})*,\\d{2}";
 
