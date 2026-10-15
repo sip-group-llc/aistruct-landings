@@ -54,6 +54,9 @@ class CheckoutCoupons(unittest.TestCase):
     def test_explicit_coupon_and_shipping(self):
         self.assertEqual(app.INFLUENCER_COUPONS["VOLTESEMPRE"], 5)
         self.assertEqual(app.INFLUENCER_COUPONS["RAISSA20"], 10)
+        self.assertEqual(app.INFLUENCER_COUPONS["DUARTE10"], 10)
+        self.assertEqual(app.INFLUENCER_COUPONS["THAI"], 10)
+        self.assertEqual(len(app.INFLUENCER_COUPONS), 118)
         for code, pct in app.INFLUENCER_COUPONS.items():
             for tier, price, shipping in (("kit6", 6990, 3377), ("kit12", 11990, 0)):
                 with self.subTest(code=code, tier=tier):
